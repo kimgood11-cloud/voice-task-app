@@ -144,7 +144,7 @@ if 'credentials' not in st.session_state and "refresh_token" in oauth_secrets:
     except Exception as auto_err:
         st.warning(f"자동 로그인 토큰 갱신 중 확인이 필요합니다. 다시 로그인해 주세요: {auto_err}")
 
-# --- [2단계] 최초 1회 로그인 처리 (보안 키 분실 방지 캐시 로직 및 target="_top" 적용) ---
+# --- [2단계] 최초 1회 로그인 처리 ---
 if 'credentials' not in st.session_state:
     if "code" in st.query_params and "state" in st.query_params:
         auth_code = st.query_params["code"]
@@ -180,13 +180,26 @@ if 'credentials' not in st.session_state:
         flow_store[state_key] = flow 
         
         st.warning("🔒 최초 1회 구글 계정 연동이 필요합니다. 아래 버튼을 눌러 권한을 허용해 주세요.")
-        st.markdown(
-            f'<a href="{auth_url}" target="_top">'
-            f'<button style="background-color:#4285F4; color:white; padding:12px 20px; border:none; border-radius:6px; cursor:pointer; font-size:16px; font-weight:bold;">'
-            f'🚀 Google 계정으로 안전하게 로그인</button></a>',
-            unsafe_allow_html=True
-        )
-        st.info("💡 로그인이 완료되면 자동으로 이 앱의 마이크 화면으로 돌아옵니다!")
+        
+        # 핵심 해결: <button> 태그를 제거하고 <a> 태그 자체를 버튼처럼 디자인하여 클릭 증발 및 브라우저 차단 완벽 해결 (target="_blank" 사용)
+        login_button_html = f'''
+        <a href="{auth_url}" target="_blank" style="
+            display: inline-block;
+            background-color: #4285F4;
+            color: white;
+            padding: 12px 20px;
+            text-decoration: none;
+            border-radius: 6px;
+            font-size: 16px;
+            font-weight: bold;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+            transition: background-color 0.3s;
+            ">
+            🚀 Google 계정으로 안전하게 로그인 (새 창)
+        </a>
+        '''
+        st.markdown(login_button_html, unsafe_allow_html=True)
+        st.info("💡 버튼을 누르면 새 탭에서 로그인이 진행됩니다. 로그인을 완료하면 자동으로 이 앱의 마이크 화면으로 돌아옵니다!")
         st.stop()
 
 # 최초 로그인 직후, 평생 로그인 없이 쓰기 위한 refresh_token 설정 안내 박스 표시
