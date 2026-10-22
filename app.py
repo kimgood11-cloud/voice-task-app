@@ -14,7 +14,7 @@ from google.genai import types
 # =====================================================================
 # [사용자 수정 가능 변수 구역 1] 기본 환경 및 무료 한도 설정
 # =====================================================================
-REDIRECT_URI = 'http://localhost:8501/'
+REDIRECT_URI = 'REDIRECT_URI = 'https://public-voice-task.streamlit.app/'
 SHEET_NAME = 'Voice_Log_DB'
 GEMINI_MODEL = 'gemini-2.5-flash'
 
