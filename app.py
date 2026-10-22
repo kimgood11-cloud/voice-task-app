@@ -309,8 +309,9 @@ st.info(
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
 st.markdown("🔑 **[무료 Gemini API 키 발급받기 (Google AI Studio)](https://aistudio.google.com/app/apikey)**")
-# 다중 사용자 격리를 위해 기본값(value)을 비워두어 각자 본인의 키를 입력하도록 설정
-user_api_key = st.text_input("1️⃣ 본인의 무료 Gemini API 키를 입력하세요 (AIza...로 시작하는 키):", type="password")
+
+# [글자 깨짐 완벽 해결] 특수 숫자 이모지 대신 모든 기기에서 선명하게 보이는 표준 텍스트 '[1단계]' 적용
+user_api_key = st.text_input("[1단계] 본인의 무료 Gemini API 키를 입력하세요 (AIza...로 시작하는 키):", type="password")
 
 save_audio_toggle = st.checkbox(
     "💾 [저장 여부 선택] 원본 음성 내 구글 드라이브 백업 및 내 구글 시트 누적 저장하기 (체크 해제 시 화면 분석만 수행)",
@@ -321,7 +322,8 @@ save_audio_toggle = st.checkbox(
 tab1, tab2 = st.tabs(["🎙️ 실시간 녹음 및 파일 변환", "📁 내 저장된 녹음 리스트 조회 및 바로 듣기"])
 
 with tab1:
-    input_method = st.radio("2️⃣ 음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
+    # [글자 깨짐 완벽 해결] 표준 텍스트 '[2단계]' 적용하여 일관성 유지
+    input_method = st.radio("[2단계] 음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
     audio_bytes = None
     mime_type = "audio/wav"
 
@@ -347,7 +349,7 @@ with tab1:
 
     if is_new_audio or manual_trigger:
         if not user_api_key:
-            st.warning("⚠️ 상단 1️⃣번 칸에 본인의 무료 Gemini API 키를 먼저 입력해 주세요.")
+            st.warning("⚠️ 상단 [1단계] 칸에 본인의 무료 Gemini API 키를 먼저 입력해 주세요.")
         elif not audio_bytes:
             st.warning("⚠️ 분석할 음성 데이터가 없습니다.")
         elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS:
