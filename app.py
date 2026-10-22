@@ -2,18 +2,26 @@ import streamlit as st
 import json
 import io
 import re
+import time
 import hashlib
+import base64
 from datetime import datetime, timedelta
+from zoneinfo import ZoneInfo
 from audio_recorder_streamlit import audio_recorder
 import gspread
 from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession, Request
 from google import genai
 from google.genai import types
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 및 무료 한도 설정
+# [사용자 수정 가능 변수 구역 1] 기본 환경, 타이틀 및 무료 한도 설정
 # =====================================================================
+APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
+APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
+AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음"
+
 REDIRECT_URI = 'https://public-voice-task.streamlit.app/'
 SHEET_NAME = 'Voice_Log_DB'
 GEMINI_MODEL = 'gemini-2.5-flash'
@@ -33,17 +41,17 @@ SHEET_HEADERS = [
     "상세내용(주제별정리/전체녹음)", "약속일시", "캘린더등록", "음성링크"
 ]
 
-# 구글 캘린더 기본 일정 길이(시간) 및 타임존
+# 구글 캘린더 기본 일정 길이(시간) 및 대한민국 표준 시간대(KST) 고정
 DEFAULT_EVENT_HOURS = 1
 TIMEZONE = 'Asia/Seoul'
+KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
 # [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수
-# 나중에 분류 기준이나 회의록 양식을 바꾸고 싶을 때 이 함수 내부만 수정하세요!
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
-    현재 기준 시각은 {current_time_str} ({weekday_korean})이야.
+    현재 대한민국 기준 시각은 {current_time_str} ({weekday_korean})이야.
     첨부된 음성(회의 또는 메모)을 끝까지 주의 깊게 듣고, 아래 규칙에 맞춰 반드시 JSON 형식으로만 출력해 줘.
 
     [작성 및 분류 상세 규칙]
@@ -82,11 +90,166 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     }}
     """
     return prompt
-# =====================================================================
 
-st.set_page_config(page_title="Voice-to-Task 스마트 자동화", page_icon="🎙️", layout="wide")
-st.title("🎙️ 개인 맞춤형 Voice-to-Task & 스마트 아카이브")
-st.write("녹음 종료(OFF) 즉시 한글 카테고리 분류, 주제별 회의 정리, 본인 구글 캘린더 자동 등록 및 원본 음성 재생을 지원합니다.")
+# =====================================================================
+# [프리미엄 UI 디자인 및 불필요한 상하단 링크 완벽 숨김 CSS 적용]
+# =====================================================================
+st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
+
+premium_css = f"""
+<style>
+    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
+    
+    html, body, [class*="css"] {{
+        font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+    }}
+
+    #MainMenu {{visibility: hidden !important; display: none !important;}}
+    header {{visibility: hidden !important; display: none !important;}}
+    footer {{visibility: hidden !important; display: none !important;}}
+    [data-testid="stHeader"] {{display: none !important;}}
+    [data-testid="stToolbar"] {{display: none !important;}}
+    [data-testid="stDecoration"] {{display: none !important;}}
+    [data-testid="stStatusWidget"] {{display: none !important;}}
+    .viewerBadge_container__1QSob {{display: none !important;}}
+    .styles_viewerBadge__1yB5_ {{display: none !important;}}
+
+    .block-container {{
+        padding-top: 1.2rem !important;
+        padding-bottom: 2.5rem !important;
+        max-width: 880px !important;
+    }}
+
+    .premium-header {{
+        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
+        color: #ffffff;
+        padding: 26px 28px;
+        border-radius: 18px;
+        box-shadow: 0 10px 25px -5px rgba(49, 46, 129, 0.35);
+        margin-bottom: 20px;
+        border: 1px solid rgba(255, 255, 255, 0.12);
+    }}
+    .premium-badge {{
+        display: inline-block;
+        background: rgba(255, 255, 255, 0.18);
+        color: #e0e7ff;
+        font-size: 12px;
+        font-weight: 700;
+        padding: 4px 10px;
+        border-radius: 20px;
+        margin-bottom: 10px;
+        letter-spacing: 0.5px;
+    }}
+    .premium-title {{
+        font-size: 24px;
+        font-weight: 800;
+        margin: 0 0 8px 0;
+        letter-spacing: -0.5px;
+        line-height: 1.3;
+    }}
+    .premium-subtitle {{
+        font-size: 14px;
+        color: #c7d2fe;
+        margin: 0;
+        font-weight: 400;
+        line-height: 1.5;
+    }}
+
+    .usage-card {{
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 14px;
+        padding: 16px 20px;
+        box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04);
+        margin-bottom: 12px;
+    }}
+    .usage-title {{
+        font-size: 14px;
+        font-weight: 700;
+        color: #1e293b;
+        margin-bottom: 10px;
+    }}
+    .usage-grid {{
+        display: flex;
+        justify-content: space-between;
+        gap: 10px;
+        flex-wrap: wrap;
+    }}
+    .usage-item {{
+        background: #f8fafc;
+        border-radius: 10px;
+        padding: 10px 14px;
+        flex: 1;
+        min-width: 120px;
+        border: 1px solid #f1f5f9;
+    }}
+    .usage-label {{
+        font-size: 12px;
+        color: #64748b;
+        margin-bottom: 4px;
+    }}
+    .usage-value {{
+        font-size: 16px;
+        font-weight: 800;
+        color: #3b82f6;
+    }}
+
+    .mic-guide-card {{
+        background: linear-gradient(to right, #fff5f5, #ffffff);
+        border: 1px solid #fecaca;
+        border-left: 5px solid #ef4444;
+        border-radius: 12px;
+        padding: 15px 18px;
+        margin-top: 8px;
+        margin-bottom: 14px;
+        box-shadow: 0 2px 8px rgba(239, 68, 68, 0.08);
+    }}
+
+    .login-card {{
+        background: #ffffff;
+        border: 1px solid #e2e8f0;
+        border-radius: 16px;
+        padding: 32px 24px;
+        text-align: center;
+        box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
+        margin-top: 15px;
+    }}
+
+    .step-guide-box {{
+        background: #f8fafc;
+        border: 1px solid #e2e8f0;
+        border-left: 4px solid #3b82f6;
+        border-radius: 10px;
+        padding: 12px 15px;
+        margin-bottom: 10px;
+        font-size: 14px;
+        color: #334155;
+        line-height: 1.5;
+    }}
+
+    .stButton > button {{
+        border-radius: 10px !important;
+        font-weight: 700 !important;
+        padding: 0.5rem 1rem !important;
+        transition: all 0.2s ease !important;
+    }}
+    .stTabs [data-baseweb="tab-list"] {{
+        gap: 8px;
+    }}
+    .stTabs [data-baseweb="tab"] {{
+        border-radius: 10px 10px 0 0 !important;
+        padding: 10px 18px !important;
+        font-weight: 700 !important;
+    }}
+</style>
+
+<div class="premium-header">
+    <div class="premium-badge">✨ AI SMART VOICE WORKSPACE</div>
+    <div class="premium-title">🎙️ {APP_TITLE}</div>
+    <div class="premium-subtitle">{APP_SUBTITLE}</div>
+</div>
+"""
+st.markdown(premium_css, unsafe_allow_html=True)
 
 # --- [1단계] 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
 SCOPES = [
@@ -112,18 +275,45 @@ except Exception:
     st.error("⚠️ `.streamlit/secrets.toml` 설정 파일을 찾을 수 없거나 형식이 올바르지 않습니다.")
     st.stop()
 
-# --- [서버 캐시 설정] 다중 사용자 각각의 보안 키(Code Verifier) 유지를 위한 임시 저장소 ---
+# --- [서버 캐시 설정] 다중 사용자 각각의 보안 키 유지를 위한 임시 저장소 ---
 @st.cache_resource
 def get_flow_store():
     return {}
 
 flow_store = get_flow_store()
 
-# 권한 스코프 누락 시 재로그인 유도
 if 'credentials' in st.session_state:
     saved_scopes = st.session_state['credentials'].scopes or []
     if 'https://www.googleapis.com/auth/calendar.events' not in saved_scopes:
         del st.session_state['credentials']
+
+# --- [스마트폰 바탕화면 앱 전용] URL 파라미터(rt, ak)를 통한 계정 및 API 키 자동 복구 ---
+if 'credentials' not in st.session_state and "rt" in st.query_params:
+    try:
+        user_rt = st.query_params["rt"]
+        auto_creds = Credentials(
+            token=None,
+            refresh_token=user_rt,
+            token_uri=oauth_secrets["token_uri"],
+            client_id=oauth_secrets["client_id"],
+            client_secret=oauth_secrets["client_secret"],
+            scopes=SCOPES
+        )
+        auto_creds.refresh(Request())
+        st.session_state['credentials'] = auto_creds
+    except Exception:
+        if "rt" in st.query_params:
+            del st.query_params["rt"]
+
+if "saved_api_key" not in st.session_state:
+    if "ak" in st.query_params:
+        try:
+            decoded_key = base64.b64decode(st.query_params["ak"].encode()).decode()
+            st.session_state["saved_api_key"] = decoded_key
+        except Exception:
+            st.session_state["saved_api_key"] = ""
+    else:
+        st.session_state["saved_api_key"] = ""
 
 # --- [2단계] 다중 사용자 개별 로그인 세션 격리 및 오프라인 토큰 갱신 설정 ---
 if 'credentials' not in st.session_state:
@@ -134,8 +324,15 @@ if 'credentials' not in st.session_state:
             if state_key in flow_store:
                 flow = flow_store.pop(state_key)
                 flow.fetch_token(code=auth_code)
-                st.session_state['credentials'] = flow.credentials
+                creds = flow.credentials
+                st.session_state['credentials'] = creds
+                
+                existing_ak = st.query_params.get("ak", "")
                 st.query_params.clear()
+                if creds.refresh_token:
+                    st.query_params["rt"] = creds.refresh_token
+                if existing_ak:
+                    st.query_params["ak"] = existing_ak
                 st.rerun()
             else:
                 st.warning("로그인 대기 시간이 지났습니다. 아래 버튼을 눌러 다시 로그인해 주세요.")
@@ -150,7 +347,6 @@ if 'credentials' not in st.session_state:
                 st.rerun()
             st.stop()
     else:
-        # 메모리 보호를 위해 대기 중인 흐름이 100개를 넘으면 초기화
         if len(flow_store) > 100:
             flow_store.clear()
             
@@ -162,28 +358,39 @@ if 'credentials' not in st.session_state:
         )
         flow_store[state_key] = flow
         
-        st.warning("🔒 시작하려면 본인의 구글 계정으로 로그인하여 시트, 드라이브, 캘린더 접근을 허용해 주세요.")
-        login_button_html = f'''
-        <a href="{auth_url}" target="_blank" style="
-            display: inline-block;
-            background-color: #4285F4;
-            color: white;
-            padding: 12px 20px;
-            text-decoration: none;
-            border-radius: 6px;
-            font-size: 16px;
-            font-weight: bold;
-            box-shadow: 0 2px 4px rgba(0,0,0,0.2);
-            ">
-            🚀 내 Google 계정으로 안전하게 로그인 (새 창)
-        </a>
-        '''
-        st.markdown(login_button_html, unsafe_allow_html=True)
-        st.info("💡 로그인된 본인의 구글 드라이브와 캘린더에만 안전하게 저장되며, 다른 사람에게 내 기록이 보이지 않습니다.")
+        st.markdown(
+            f"""
+            <div class="login-card">
+                <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
+                <h3 style="margin: 0 0 10px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
+                <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.6;">
+                    서비스를 시작하려면 본인의 구글 계정으로 로그인해 주세요.<br>
+                    한 번 로그인하면 <b>로그아웃 전까지 계정이 자동 유지</b>되며,<br>
+                    모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
+                </p>
+                <a href="{auth_url}" target="_blank" rel="noopener noreferrer" style="
+                    display: inline-block;
+                    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+                    color: white;
+                    padding: 14px 28px;
+                    text-decoration: none;
+                    border-radius: 12px;
+                    font-size: 16px;
+                    font-weight: 700;
+                    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+                    ">
+                    🚀 내 Google 계정으로 시작하기 (새 창)
+                </a>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
         st.stop()
 
-# --- [3단계] 일일 무료 사용량 추적기 및 중복 방지 초기화 ---
-today_str = datetime.now().strftime("%Y-%m-%d")
+# --- [3단계] 대한민국 표준시(KST) 기준 일일 무료 사용량 추적기 초기화 ---
+now_kst = datetime.now(KST)
+today_str = now_kst.strftime("%Y-%m-%d")
+
 if st.session_state.get("usage_date") != today_str:
     st.session_state["usage_date"] = today_str
     st.session_state["daily_used_seconds"] = 0.0
@@ -192,9 +399,60 @@ if st.session_state.get("usage_date") != today_str:
 if "last_processed_hash" not in st.session_state:
     st.session_state["last_processed_hash"] = None
 
-# --- [4단계] 장시간 토큰 자동 갱신 및 구글 연동 보조 함수들 ---
+# --- [4단계] 장시간 토큰 자동 갱신, 팝업창(Dialog) 및 구글 연동 보조 함수들 ---
+@st.dialog("🔑 무료 Gemini API 키 1분 발급 절차 안내", width="large")
+def show_api_guide_modal():
+    st.markdown(
+        """
+        <div style="margin-bottom: 14px; font-size: 14px; color: #475569;">
+            AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다. <b>(최초 1회만 진행 / 평생 무료)</b>
+        </div>
+        <div style="text-align: center; margin-bottom: 18px;">
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="
+                display: inline-block;
+                background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+                color: white;
+                padding: 12px 24px;
+                text-decoration: none;
+                border-radius: 10px;
+                font-size: 15px;
+                font-weight: 700;
+                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
+            ">
+                👉 1. 여기를 눌러 Google AI Studio 열기 (새 창)
+            </a>
+        </div>
+        <div class="step-guide-box">
+            <b>[1단계] 구글 로그인 및 약관 동의</b><br>
+            위 파란색 버튼을 눌러 열린 사이트에서 본인의 <b>구글 계정(Gmail)</b>으로 로그인합니다. 처음 접속 시 약관 동의 창이 뜨면 체크박스에 체크 후 파란색 <b>[Continue(계속)]</b> 버튼을 누릅니다.
+        </div>
+        <div class="step-guide-box">
+            <b>[2단계] API 키 생성 버튼 클릭</b><br>
+            화면 좌측 또는 우측 상단에 있는 파란색 <b>[Get API key]</b> 또는 <b>[Create API key (API 키 만들기)]</b> 버튼을 클릭합니다.
+        </div>
+        <div class="step-guide-box">
+            <b>[3단계] 새 프로젝트에서 키 발급</b><br>
+            팝업창이 나타나면 <b>[Create API key in new project (새 프로젝트에서 API 키 만들기)]</b>를 클릭합니다.
+        </div>
+        <div class="step-guide-box">
+            <b>[4단계] 발급된 키 복사 및 아래 칸에 붙여넣기</b><br>
+            잠시 후 <code>AIzaSy...</code>로 시작하는 긴 영어 암호가 나타나면 우측의 <b>[Copy(복사)]</b> 버튼을 누른 뒤, <b>바로 아래 입력칸에 붙여넣고 저장</b>을 누르면 완료됩니다!
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    st.markdown("---")
+    modal_key = st.text_input("👇 발급받아 복사한 API 키를 여기에 바로 붙여넣으세요:", type="password", key="modal_api_input")
+    if st.button("✅ API 키 저장 및 시작하기", type="primary", use_container_width=True):
+        if modal_key.strip():
+            clean_key = modal_key.strip()
+            st.session_state["saved_api_key"] = clean_key
+            st.query_params["ak"] = base64.b64encode(clean_key.encode()).decode()
+            st.rerun()
+        else:
+            st.warning("⚠️ 먼저 복사한 API 키를 입력칸에 붙여넣어 주세요.")
+
 def get_valid_credentials():
-    """2시간 장시간 회의 후에도 로그인 세션이 끊기지 않도록 만료된 토큰을 자동 연장합니다."""
     creds = st.session_state['credentials']
     if creds and creds.expired and creds.refresh_token:
         try:
@@ -205,7 +463,6 @@ def get_valid_credentials():
     return creds
 
 def add_to_google_calendar(creds, summary, assignee, details, due_date, event_time):
-    """추출된 날짜/시간이 있을 때 로그인한 사용자의 구글 캘린더에 일정을 자동 등록합니다."""
     if not due_date:
         return "일정 없음 (시트만 저장)"
     
@@ -239,10 +496,9 @@ def add_to_google_calendar(creds, summary, assignee, details, due_date, event_ti
         return f"⚠️ 캘린더 형식 오류 ({cal_err})"
 
 def upload_audio_to_drive(creds, audio_bytes, mime_type):
-    """원본 음성 파일을 로그인한 사용자의 구글 드라이브에 백업하고 링크를 반환합니다."""
     authed_session = AuthorizedSession(creds)
     ext = "mp3" if "mp3" in mime_type else ("m4a" if "mp4" in mime_type else "wav")
-    metadata = {"name": f"Voice_Record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"}
+    metadata = {"name": f"Voice_Record_{datetime.now(KST).strftime('%Y%m%d_%H%M%S')}.{ext}"}
     files = {
         'data': ('metadata', json.dumps(metadata), 'application/json'),
         'file': ('audio', audio_bytes, mime_type)
@@ -260,7 +516,6 @@ def upload_audio_to_drive(creds, audio_bytes, mime_type):
         return ""
 
 def download_audio_from_drive(creds, drive_url):
-    """구글 드라이브 링크에서 파일 ID를 추출해 앱 내 재생용 오디오 바이트를 가져옵니다."""
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', drive_url)
     if not match:
         return None
@@ -275,7 +530,6 @@ def download_audio_from_drive(creds, drive_url):
         return None
 
 def save_record_to_sheet(creds, row_data):
-    """로그인한 사용자의 구글 스프레드시트에 데이터를 저장합니다. (없으면 자동 생성)"""
     client_gspread = gspread.authorize(creds)
     try:
         sheet = client_gspread.open(SHEET_NAME).sheet1
@@ -285,91 +539,210 @@ def save_record_to_sheet(creds, row_data):
         new_spreadsheet = client_gspread.create(SHEET_NAME)
         sheet = new_spreadsheet.sheet1
         sheet.append_row(SHEET_HEADERS)
-    sheet.append_row(row_data)
+    sheet.append_row(row_data, value_input_option='RAW')
 
-# --- [5단계] 상단 무료 사용량 대시보드 및 기본 설정 UI ---
-col_status, col_logout = st.columns([4, 1])
-with col_status:
-    st.success("✅ 내 구글 계정 연동 완료! (내 시트와 캘린더에 개별 저장됩니다)")
-with col_logout:
-    if st.button("🚪 로그아웃 (계정 전환)"):
-        del st.session_state['credentials']
-        st.rerun()
+# --- [5단계] 상단 상태 바, 무료 사용량 대시보드 및 API 키 스마트 숨김 UI ---
+if st.session_state["saved_api_key"]:
+    col_status, col_key_btn, col_logout = st.columns([3.2, 1.1, 1.1])
+    with col_status:
+        st.success("✅ 구글 계정 및 AI 키 자동 유지 활성화됨")
+    with col_key_btn:
+        if st.button("🔑 API 키 변경", use_container_width=True):
+            st.session_state["saved_api_key"] = ""
+            if "ak" in st.query_params:
+                del st.query_params["ak"]
+            st.rerun()
+    with col_logout:
+        if st.button("🚪 로그아웃", use_container_width=True):
+            if 'credentials' in st.session_state:
+                del st.session_state['credentials']
+            st.session_state["saved_api_key"] = ""
+            st.query_params.clear()
+            st.rerun()
+else:
+    col_status, col_logout = st.columns([4, 1.2])
+    with col_status:
+        st.success("✅ 내 구글 계정 연동 완료! (아래에서 AI 키를 1회 등록해 주세요)")
+    with col_logout:
+        if st.button("🚪 로그아웃", use_container_width=True):
+            if 'credentials' in st.session_state:
+                del st.session_state['credentials']
+            st.query_params.clear()
+            st.rerun()
+
+with st.expander("📲 휴대폰 바탕화면(홈 화면)에 추가하여 편리하게 쓰는 법"):
+    st.markdown(
+        "**바탕화면 추가 (자동 로그인 유지):** 구글 로그인과 API 키 입력까지 마친 후, 휴대폰 브라우저 메뉴에서 **[홈 화면에 추가]**를 누르세요. 앞으로 앱을 켤 때마다 매번 로그인이나 키 입력 없이 바로 마이크 화면이 열립니다!"
+    )
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 remaining_mins = max(0.0, DAILY_FREE_LIMIT_MINUTES - used_mins)
 req_count = st.session_state["daily_request_count"]
 
-st.info(
-    f"📊 **오늘의 무료 음성 사용 현황 ({today_str})**\n"
-    f"- **1회 최대 무료 분석 한도:** 최대 **{MAX_SINGLE_FREE_MINUTES}분**\n"
-    f"- **오늘 누적 사용 시간:** **{used_mins:.1f}분** / {DAILY_FREE_LIMIT_MINUTES}분 (남은 무료 여유: 약 **{remaining_mins:.1f}분**)\n"
-    f"- **오늘 무료 분석 횟수:** **{req_count}회** / {DAILY_FREE_LIMIT_REQUESTS}회"
+st.markdown(
+    f"""
+    <div class="usage-card">
+        <div class="usage-title">📊 오늘의 무료 AI 음성 사용 현황 ({today_str})</div>
+        <div class="usage-grid">
+            <div class="usage-item">
+                <div class="usage-label">1회 최대 분석 한도</div>
+                <div class="usage-value">최대 {MAX_SINGLE_FREE_MINUTES}분</div>
+            </div>
+            <div class="usage-item">
+                <div class="usage-label">오늘 누적 사용 시간</div>
+                <div class="usage-value">{used_mins:.1f}분 <span style="font-size:12px; color:#64748b; font-weight:500;">/ {DAILY_FREE_LIMIT_MINUTES}분</span></div>
+            </div>
+            <div class="usage-item">
+                <div class="usage-label">남은 무료 여유 시간</div>
+                <div class="usage-value" style="color:#10b981;">약 {remaining_mins:.1f}분</div>
+            </div>
+            <div class="usage-item">
+                <div class="usage-label">오늘 무료 분석 횟수</div>
+                <div class="usage-value">{req_count}회 <span style="font-size:12px; color:#64748b; font-weight:500;">/ {DAILY_FREE_LIMIT_REQUESTS}회</span></div>
+            </div>
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
 )
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
-st.markdown("🔑 **[무료 Gemini API 키 발급받기 (Google AI Studio)](https://aistudio.google.com/app/apikey)**")
+if not st.session_state["saved_api_key"]:
+    st.markdown(
+        """
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:16px; margin-bottom:10px;">
+            <b style="color:#1e40af; font-size:15px;">🔑 최초 1회 무료 Gemini API 키 등록이 필요합니다</b><br>
+            <span style="color:#3b82f6; font-size:13px;">한 번만 입력하고 엔터를 치면 이 입력창은 화면에서 깔끔하게 사라지며, 다음 접속 시에도 자동으로 유지됩니다.</span>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    col_guide_btn, col_direct_link = st.columns([1.5, 1.5])
+    with col_guide_btn:
+        if st.button("📖 처음이신가요? 무료 API 키 발급 절차 보기 (팝업)", type="primary", use_container_width=True):
+            show_api_guide_modal()
+    with col_direct_link:
+        st.markdown(
+            '<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display:block; text-align:center; background:#ffffff; border:1px solid #2563eb; color:#2563eb; padding:9px 12px; border-radius:10px; font-weight:700; text-decoration:none; font-size:14px;">🔗 Google AI Studio 바로 열기 (새 창)</a>',
+            unsafe_allow_html=True
+        )
+        
+    key_input = st.text_input("[1단계] 발급받은 무료 Gemini API 키(AIza...로 시작)를 붙여넣고 엔터(Enter)를 누르세요:", type="password")
+    if key_input.strip():
+        clean_key = key_input.strip()
+        st.session_state["saved_api_key"] = clean_key
+        st.query_params["ak"] = base64.b64encode(clean_key.encode()).decode()
+        st.rerun()
 
-# [글자 깨짐 완벽 해결] 특수 숫자 이모지 대신 모든 기기에서 선명하게 보이는 표준 텍스트 '[1단계]' 적용
-user_api_key = st.text_input("[1단계] 본인의 무료 Gemini API 키를 입력하세요 (AIza...로 시작하는 키):", type="password")
+user_api_key = st.session_state["saved_api_key"]
 
-save_audio_toggle = st.checkbox(
-    "💾 [저장 여부 선택] 원본 음성 내 구글 드라이브 백업 및 내 구글 시트 누적 저장하기 (체크 해제 시 화면 분석만 수행)",
-    value=True
-)
+save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
 # --- [6단계] 탭 구성: 탭1(음성 입력/변환) & 탭2(저장된 녹음 리스트 조회/듣기) ---
 tab1, tab2 = st.tabs(["🎙️ 실시간 녹음 및 파일 변환", "📁 내 저장된 녹음 리스트 조회 및 바로 듣기"])
 
 with tab1:
-    # [글자 깨짐 완벽 해결] 표준 텍스트 '[2단계]' 적용하여 일관성 유지
-    input_method = st.radio("[2단계] 음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
+    input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
     audio_bytes = None
     mime_type = "audio/wav"
+    should_process = False
 
     if input_method == "실시간 녹음":
+        st.markdown(
+            """
+            <div class="mic-guide-card">
+                <div style="font-size:15px; font-weight:800; color:#991b1b; margin-bottom:6px;">🎙️ 실시간 녹음 상태 확인 안내</div>
+                <div style="font-size:14px; color:#374151; line-height:1.6;">
+                    • 아래 <b>검정색 마이크</b>를 클릭하면 ➡️ 즉시 <b style="color:#ef4444;">🔴 빨간색 마이크 (녹음중)</b> 상태로 변합니다.<br>
+                    • 말씀을 마친 후 <b style="color:#ef4444;">🔴 빨간색 마이크</b>를 다시 클릭하면 ➡️ <b>녹음중이 사라지며 즉시 자동 변환</b>됩니다!
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        
         audio_bytes = audio_recorder(
-            text="마이크 아이콘을 눌러 녹음을 시작하고, 다시 눌러 종료(OFF)하면 즉시 변환됩니다",
+            text="👉 마이크 클릭 시 시작 (🔴빨간색 = 녹음중 / 다시 클릭 시 녹음종료 및 자동변환)",
+            recording_color="#ef4444",
+            neutral_color="#1e293b",
             icon_size="2x"
         )
+        
         if audio_bytes:
+            st.success("✅ 녹음이 완료되었습니다! 아래에서 녹음된 음성을 확인하실 수 있습니다.")
             st.audio(audio_bytes, format="audio/wav")
+            
+        current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
+        if audio_bytes is not None and current_audio_hash != st.session_state["last_processed_hash"]:
+            should_process = True
+
     else:
-        uploaded_file = st.file_uploader("음성 파일을 업로드하세요 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'])
+        st.markdown(
+            """
+            <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #3b82f6; border-radius:12px; padding:15px 18px; margin-top:8px; margin-bottom:14px;">
+                <div style="font-size:15px; font-weight:800; color:#1e3a8a; margin-bottom:6px;">📂 녹음 파일 업로드 및 변환 방법</div>
+                <div style="font-size:14px; color:#334155; line-height:1.6;">
+                    1. 아래 <b>[Browse files]</b> 버튼을 눌러 휴대폰이나 PC에 저장된 음성 파일(mp3, wav, m4a)을 선택하세요.<br>
+                    2. 파일이 첨부되면 아래에 나타나는 <b>[🚀 업로드한 파일 변환 및 저장 실행]</b> 버튼을 클릭해야 변환이 시작됩니다.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
+        uploaded_file = st.file_uploader("변환할 음성 파일을 선택하세요 (mp3, wav, m4a)", type=['mp3', 'wav', 'm4a'])
         if uploaded_file:
             audio_bytes = uploaded_file.read()
             ext = uploaded_file.name.split(".")[-1].lower()
             mime_map = {"mp3": "audio/mp3", "m4a": "audio/mp4", "wav": "audio/wav"}
             mime_type = mime_map.get(ext, "audio/wav")
             st.audio(audio_bytes, format=mime_type)
+            
+        current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
+        if st.button("🚀 업로드한 파일 변환 및 저장 실행", type="primary", use_container_width=True):
+            should_process = True
 
-    current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
-    is_new_audio = audio_bytes is not None and current_audio_hash != st.session_state["last_processed_hash"]
-    manual_trigger = st.button("🔄 수동 변환 및 저장 재실행")
-
-    if is_new_audio or manual_trigger:
+    if should_process:
         if not user_api_key:
-            st.warning("⚠️ 상단 [1단계] 칸에 본인의 무료 Gemini API 키를 먼저 입력해 주세요.")
-        elif not audio_bytes:
-            st.warning("⚠️ 분석할 음성 데이터가 없습니다.")
+            st.warning("⚠️ 상단에 본인의 무료 Gemini API 키를 먼저 등록해 주세요.")
+        elif not audio_bytes or len(audio_bytes) < 100:
+            st.warning("⚠️ 분석할 음성 데이터가 없거나 너무 짧습니다. 다시 녹음하거나 파일을 선택해 주세요.")
         elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS:
             st.error(f"🛑 오늘의 무료 사용 안전 한도({DAILY_FREE_LIMIT_MINUTES}분 또는 {DAILY_FREE_LIMIT_REQUESTS}회)를 모두 소진했습니다. 내일 다시 이용해 주세요.")
         else:
             file_size_mb = len(audio_bytes) / (1024 * 1024)
             try:
-                now = datetime.now()
+                now = datetime.now(KST)
                 current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
                 weekday_korean = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][now.weekday()]
                 
                 prompt_text = build_gemini_prompt(current_time_str, weekday_korean, today_str)
                 client_gemini = genai.Client(api_key=user_api_key.strip())
                 
-                with st.spinner("⚡ 녹음 종료 감지! 무료 Gemini AI가 회의 주제별 정리 및 전체 받아쓰기를 수행 중입니다..."):
+                json_schema = types.Schema(
+                    type=types.Type.OBJECT,
+                    properties={
+                        "Category": types.Schema(type=types.Type.STRING),
+                        "Assignee": types.Schema(type=types.Type.STRING),
+                        "Summary": types.Schema(type=types.Type.STRING),
+                        "Details": types.Schema(type=types.Type.STRING),
+                        "DueDate": types.Schema(type=types.Type.STRING),
+                        "EventTime": types.Schema(type=types.Type.STRING),
+                    },
+                    required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"]
+                )
+                gen_config = types.GenerateContentConfig(
+                    response_mime_type="application/json",
+                    response_schema=json_schema,
+                    temperature=0.1
+                )
+                
+                with st.spinner("⚡ AI가 음성을 정밀 분석하여 주제별 요약 및 전체 받아쓰기를 수행 중입니다..."):
                     if file_size_mb <= INLINE_LIMIT_MB:
                         response = client_gemini.models.generate_content(
                             model=GEMINI_MODEL,
                             contents=[types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt_text],
-                            config=types.GenerateContentConfig(response_mime_type="application/json")
+                            config=gen_config
                         )
                     else:
                         uploaded_file_obj = None
@@ -379,14 +752,23 @@ with tab1:
                                 file=audio_stream,
                                 config=types.UploadFileConfig(mime_type=mime_type)
                             )
+                            for _ in range(30):
+                                file_info = client_gemini.files.get(name=uploaded_file_obj.name)
+                                if file_info.state.name == "ACTIVE":
+                                    break
+                                time.sleep(1)
+                                
                             response = client_gemini.models.generate_content(
                                 model=GEMINI_MODEL,
                                 contents=[uploaded_file_obj, prompt_text],
-                                config=types.GenerateContentConfig(response_mime_type="application/json")
+                                config=gen_config
                             )
                         finally:
                             if uploaded_file_obj:
-                                client_gemini.files.delete(name=uploaded_file_obj.name)
+                                try:
+                                    client_gemini.files.delete(name=uploaded_file_obj.name)
+                                except Exception:
+                                    pass
                                 
                     result_data = json.loads(response.text)
                     
@@ -403,29 +785,33 @@ with tab1:
                 due_date = result_data.get("DueDate", "").strip()
                 event_time = result_data.get("EventTime", "").strip()
                 
-                st.success("✨ AI 음성 분석 완료!")
+                st.success("✨ AI 음성 분석 및 요약 정리 완료!")
                 st.markdown(f"### 📌 {summary}")
                 st.write(f"**🏷️ 카테고리:** `{category}` | **👤 담당자:** `{assignee}` | **⏰ 약속일시:** `{due_date} {event_time}`")
                 st.text_area("📝 상세 회의 주제별 정리 및 전체 받아쓰기 내용", value=details, height=240)
                 
-                if save_audio_toggle:
-                    with st.spinner("💾 내 구글 시트 기록, 내 캘린더 등록 및 원본 음성 드라이브 백업 중..."):
-                        creds = get_valid_credentials()
-                        calendar_status = add_to_google_calendar(creds, summary, assignee, details, due_date, event_time)
+                with st.spinner("💾 내 구글 시트 요약 기록 및 캘린더 일정 자동 연동 중..."):
+                    creds = get_valid_credentials()
+                    calendar_status = add_to_google_calendar(creds, summary, assignee, details, due_date, event_time)
+                    
+                    if save_audio_toggle:
                         drive_link = upload_audio_to_drive(creds, audio_bytes, mime_type)
-                        schedule_display = f"{due_date} {event_time}".strip()
+                        backup_msg = "원본 음성 드라이브 백업 포함"
+                    else:
+                        drive_link = "원본 음성 저장 안 함 (텍스트만 기록)"
+                        backup_msg = "원본 음성 백업 제외 (텍스트 및 캘린더만 연동)"
                         
-                        row_to_save = [
-                            current_time_str, category, assignee, summary,
-                            details, schedule_display, calendar_status, drive_link
-                        ]
-                        save_record_to_sheet(creds, row_to_save)
-                        st.info(f"✅ 내 구글 시트(`{SHEET_NAME}`) 저장 및 백업 완료! (캘린더 상태: {calendar_status})")
-                else:
-                    st.warning("ℹ️ '저장 여부 선택' 스위치가 꺼져 있어 구글 시트 기록 및 음성 백업은 생략되었습니다.")
+                    schedule_display = f"{due_date} {event_time}".strip()
+                    
+                    row_to_save = [
+                        current_time_str, category, assignee, summary,
+                        details, schedule_display, calendar_status, drive_link
+                    ]
+                    save_record_to_sheet(creds, row_to_save)
+                    st.info(f"✅ 내 구글 시트(`{SHEET_NAME}`) 저장 완료! ({backup_msg} | 캘린더 상태: {calendar_status})")
                     
             except Exception as e:
-                st.error(f"처리 중 오류가 발생했습니다 (API 키가 정확한지 확인해 주세요): {e}")
+                st.error(f"⚠️ 분석 중 확인이 필요합니다 (입력하신 API 키가 정확한지, 혹은 무료 한도를 초과하지 않았는지 확인해 주세요): {e}")
 
 with tab2:
     st.subheader("📁 내 구글 시트에 저장된 녹음 리스트 (조회 및 즉시 듣기)")
@@ -467,7 +853,7 @@ with tab2:
                         with col2:
                             st.markdown(f"🔗 [내 구글 드라이브에서 원본 음성 파일 직접 열기]({audio_url})")
                     else:
-                        st.caption("🎵 이 기록에는 백업된 원본 음성 파일이 없습니다.")
+                        st.caption("🎵 이 기록은 '음성 원본 녹음' 체크 해제 상태로 저장되어 텍스트 요약만 보관되어 있습니다.")
     except gspread.exceptions.SpreadsheetNotFound:
         st.info(f"아직 내 구글 드라이브에 생성된 스프레드시트(`{SHEET_NAME}`)가 없습니다. 첫 녹음을 저장하면 자동으로 생성됩니다!")
     except Exception as list_err:
