@@ -7,6 +7,7 @@ from datetime import datetime, timedelta
 from audio_recorder_streamlit import audio_recorder
 import gspread
 from google_auth_oauthlib.flow import Flow
+from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession, Request
 from google import genai
 from google.genai import types
@@ -88,6 +89,17 @@ st.set_page_config(page_title="Voice-to-Task 스마트 자동화", page_icon="�
 st.title("🎙️ 개인 맞춤형 Voice-to-Task & 스마트 아카이브")
 st.write("녹음 종료(OFF) 즉시 한글 카테고리 분류, 주제별 회의 정리, 캘린더 자동 등록 및 앱 내 원본 음성 재생을 지원합니다.")
 
+# --- [보안 강화] 앱 접속 비밀번호 확인 (Secrets에 app_password를 설정한 경우에만 작동) ---
+if "app_password" in st.secrets:
+    if not st.session_state.get("password_verified", False):
+        pwd_input = st.text_input("🔒 외부인 접근 차단을 위해 설정된 앱 비밀번호를 입력하세요:", type="password")
+        if pwd_input == st.secrets["app_password"]:
+            st.session_state["password_verified"] = True
+            st.rerun()
+        elif pwd_input:
+            st.error("비밀번호가 일치하지 않습니다.")
+        st.stop()
+
 # --- [1단계] 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
 SCOPES = [
     'https://www.googleapis.com/auth/spreadsheets',
@@ -96,14 +108,15 @@ SCOPES = [
 ]
 
 try:
+    oauth_secrets = st.secrets["google_oauth"]
     client_config = {
         "web": {
-            "client_id": st.secrets["google_oauth"]["client_id"],
-            "project_id": st.secrets["google_oauth"]["project_id"],
-            "auth_uri": st.secrets["google_oauth"]["auth_uri"],
-            "token_uri": st.secrets["google_oauth"]["token_uri"],
-            "auth_provider_x509_cert_url": st.secrets["google_oauth"]["auth_provider_x509_cert_url"],
-            "client_secret": st.secrets["google_oauth"]["client_secret"],
+            "client_id": oauth_secrets["client_id"],
+            "project_id": oauth_secrets["project_id"],
+            "auth_uri": oauth_secrets["auth_uri"],
+            "token_uri": oauth_secrets["token_uri"],
+            "auth_provider_x509_cert_url": oauth_secrets["auth_provider_x509_cert_url"],
+            "client_secret": oauth_secrets["client_secret"],
             "redirect_uris": [REDIRECT_URI]
         }
     }
@@ -111,33 +124,35 @@ except Exception:
     st.error("⚠️ `.streamlit/secrets.toml` 설정 파일을 찾을 수 없거나 형식이 올바르지 않습니다. 설명서의 필수 조건 가이드를 확인해 주세요.")
     st.stop()
 
-@st.cache_resource
-def get_temp_flow_store():
-    return {}
+# --- [핵심 업그레이드] Secrets에 저장된 refresh_token이 있으면 로그인 화면 없이 즉시 자동 연동! ---
+if 'credentials' not in st.session_state and "refresh_token" in oauth_secrets:
+    try:
+        auto_creds = Credentials(
+            token=None,
+            refresh_token=oauth_secrets["refresh_token"],
+            token_uri=oauth_secrets["token_uri"],
+            client_id=oauth_secrets["client_id"],
+            client_secret=oauth_secrets["client_secret"],
+            scopes=SCOPES
+        )
+        auto_creds.refresh(Request())
+        st.session_state['credentials'] = auto_creds
+    except Exception as auto_err:
+        st.warning(f"자동 로그인 토큰 갱신 중 확인이 필요합니다. 다시 로그인해 주세요: {auto_err}")
 
-temp_flow_store = get_temp_flow_store()
-
-# 권한 스코프 누락 시 재로그인 유도
-if 'credentials' in st.session_state:
-    saved_scopes = st.session_state['credentials'].scopes or []
-    if 'https://www.googleapis.com/auth/calendar.events' not in saved_scopes:
-        del st.session_state['credentials']
-
-# --- [2단계] 다중 사용자 로그인 세션 격리 및 오프라인 토큰 갱신 설정 ---
+# --- [2단계] 최초 1회 로그인 처리 (403 에러 방지용 새 창 열기 방식 적용) ---
 if 'credentials' not in st.session_state:
-    if "code" in st.query_params and "state" in st.query_params:
-        state_key = st.query_params["state"]
+    if "code" in st.query_params:
         auth_code = st.query_params["code"]
         try:
-            if state_key in temp_flow_store:
-                flow = temp_flow_store.pop(state_key)
-                flow.fetch_token(code=auth_code)
-                st.session_state['credentials'] = flow.credentials
-                st.query_params.clear()
-                st.rerun()
-            else:
-                st.query_params.clear()
-                st.rerun()
+            flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
+            flow.fetch_token(code=auth_code)
+            st.session_state['credentials'] = flow.credentials
+            # 최초 로그인 성공 시 영구 자동 로그인을 위한 토큰 안내 표시용 저장
+            if flow.credentials.refresh_token:
+                st.session_state['new_refresh_token'] = flow.credentials.refresh_token
+            st.query_params.clear()
+            st.rerun()
         except Exception as e:
             st.error(f"인증 처리 중 오류가 발생했습니다: {e}")
             if st.button("🔄 다시 로그인 시도"):
@@ -145,25 +160,29 @@ if 'credentials' not in st.session_state:
                 st.rerun()
             st.stop()
     else:
-        if len(temp_flow_store) > 100:
-            temp_flow_store.clear()
         flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
-        # 2시간 장시간 녹음 시에도 토큰이 만료되지 않고 자동 연장되도록 access_type='offline' 적용
-        auth_url, state = flow.authorization_url(
+        auth_url, _ = flow.authorization_url(
             prompt='consent',
             access_type='offline',
             include_granted_scopes='true'
         )
-        temp_flow_store[state] = flow
         
-        st.warning("🔒 시작하려면 구글 계정으로 로그인하여 시트, 드라이브, 캘린더 접근을 허용해 주세요.")
+        st.warning("🔒 최초 1회 구글 계정 연동이 필요합니다. 아래 버튼을 눌러 권한을 허용해 주세요.")
+        # 핵심 수정: target="_self"를 target="_blank"로 변경하여 구글의 iframe 403 차단 완벽 우회!
         st.markdown(
-            f'<a href="{auth_url}" target="_self">'
-            f'<button style="background-color:#4285F4; color:white; padding:10px 18px; border:none; border-radius:6px; cursor:pointer; font-size:16px; font-weight:bold;">'
-            f'🚀 Google 계정으로 안전하게 로그인</button></a>',
+            f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer">'
+            f'<button style="background-color:#4285F4; color:white; padding:12px 20px; border:none; border-radius:6px; cursor:pointer; font-size:16px; font-weight:bold;">'
+            f'🚀 Google 계정으로 안전하게 로그인 (새 창으로 열림)</button></a>',
             unsafe_allow_html=True
         )
+        st.info("💡 버튼을 누르면 새 탭에서 구글 로그인이 진행됩니다. 완료되면 자동으로 이 앱의 마이크 화면이 열립니다!")
         st.stop()
+
+# 최초 로그인 직후, 평생 로그인 없이 쓰기 위한 refresh_token 설정 안내 박스 표시
+if 'new_refresh_token' in st.session_state and "refresh_token" not in oauth_secrets:
+    with st.expander("🎁 [중요] 앞으로 로그인 없이 앱을 켜자마자 바로 쓰려면 여기를 클릭하세요!", expanded=True):
+        st.write("아래의 코드를 복사해서 Streamlit 관리자 화면의 **Secrets(비밀)** 맨 아랫줄에 추가로 붙여넣고 저장하세요. 그러면 앞으로는 로그인 버튼을 누를 필요 없이 앱을 켜자마자 1초 만에 마이크 화면이 바로 나옵니다!")
+        st.code(f'refresh_token = "{st.session_state["new_refresh_token"]}"', language="toml")
 
 # --- [3단계] 일일 무료 사용량 추적기 및 중복 방지 초기화 ---
 today_str = datetime.now().strftime("%Y-%m-%d")
@@ -286,7 +305,9 @@ st.info(
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
 st.markdown("🔑 **[무료 Gemini API 키 발급받기 (Google AI Studio)](https://aistudio.google.com/app/apikey)**")
-user_api_key = st.text_input("1️⃣ 본인의 무료 Gemini API 키를 입력하세요:", type="password")
+# Secrets에 gemini_api_key가 저장되어 있으면 자동으로 불러와서 채워줌
+default_gemini_key = st.secrets.get("gemini_api_key", oauth_secrets.get("gemini_api_key", ""))
+user_api_key = st.text_input("1️⃣ 본인의 무료 Gemini API 키를 입력하세요:", value=default_gemini_key, type="password")
 
 # 사용자 선택 스위치: 녹음 파일 백업 및 시트 저장 여부 결정
 save_audio_toggle = st.checkbox(
