@@ -40,7 +40,6 @@ TIMEZONE = 'Asia/Seoul'
 
 # =====================================================================
 # [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수
-# 나중에 분류 기준이나 회의록 양식을 바꾸고 싶을 때 이 함수 내부만 수정하세요!
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -50,27 +49,25 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     [작성 및 분류 상세 규칙]
     1. Category (카테고리 분류):
        - 반드시 '일정', '할일', '아이디어', '기록' 중 딱 하나로만 분류해.
-       - '일정': 특정 날짜나 시간에 방문, 내방, 미팅, 회의 등 약속이 잡힌 경우 (예: 내일 오후 2시 내방)
+       - '일정': 특정 날짜나 시간에 방문, 내방, 미팅, 회의 등 약속이 잡힌 경우
        - '할일': 기한 내에 처리하거나 준비해야 하는 업무 지시 및 확인 사항
        - '아이디어': 기획안, 신제품 아이디어, 새로운 제안, 브레인스토밍 내용
        - '기록': 위 3가지에 해당하지 않는 일반 참고 메모, 현장 상태 기록, 단순 대화 기록
 
     2. Assignee (담당자 추출):
-       - 음성에서 언급된 담당자 이름, 직급, 업체명 또는 부서를 추출해. (예: "홍길동 과장 (도루코)")
+       - 음성에서 언급된 담당자 이름, 직급, 업체명 또는 부서를 추출해.
        - 언급된 사람이 없으면 반드시 '미지정'이라고 적어.
 
     3. Summary (오늘 날짜 + 큰 회의 타이틀):
        - 전체 내용을 대표하는 핵심 제목을 한 줄로 작성하되, 맨 앞에 오늘 날짜([{today_date_str}])를 붙여줘.
-       - 예시: "[{today_date_str}] 도루코 홍길동 과장 신제품 소개 및 제안 건 내방"
 
     4. Details (상세 회의 주제별 정리 및 전체 녹음 원본 받아쓰기):
-       - 두 시간짜리 긴 회의나 여러 주제가 섞여 있어도 행을 쪼개지 말고 이 항목 안에 아래 두 파트로 나누어 모두 기재해.
-       - [파트 1: 상세 회의 주제별 정리] 논의된 안건들을 세부 주제별(주제 1, 주제 2...)로 구분하여 핵심 내용을 깔끔하게 정리.
-       - [파트 2: 전체 녹음 원본 받아쓰기] 음성에서 발화된 모든 내용을 처음부터 끝까지 단 한 문장도 누락 없이 그대로 받아쓰기(STT).
+       - [파트 1: 상세 회의 주제별 정리] 논의된 안건들을 세부 주제별로 구분하여 핵심 내용을 깔끔하게 정리.
+       - [파트 2: 전체 녹음 원본 받아쓰기] 음성에서 발화된 모든 내용을 처음부터 끝까지 받아쓰기(STT).
 
     5. DueDate (약속/기한 날짜) & EventTime (약속 시간):
-       - '내일', '모레', '다음 주 월요일' 같은 상대적 날짜 표현이 나오면 현재 기준 시각({current_time_str})을 바탕으로 정확한 날짜(YYYY-MM-DD)를 계산해.
-       - '오후 2시' 같은 시간 표현은 24시간제(HH:MM, 예: 14:00)로 변환해. 날짜나 시간 언급이 전혀 없는 단순 '기록' 등은 빈칸("")으로 비워둬.
+       - '내일', '모레' 같은 상대적 날짜 표현이 나오면 현재 기준 시각({current_time_str})을 바탕으로 정확한 날짜(YYYY-MM-DD)를 계산해.
+       - '오후 2시' 같은 시간 표현은 24시간제(HH:MM)로 변환해. 없으면 빈칸("")으로 비워둬.
 
     [출력 JSON 규격]
     {{
@@ -89,7 +86,7 @@ st.set_page_config(page_title="Voice-to-Task 스마트 자동화", page_icon="�
 st.title("🎙️ 개인 맞춤형 Voice-to-Task & 스마트 아카이브")
 st.write("녹음 종료(OFF) 즉시 한글 카테고리 분류, 주제별 회의 정리, 캘린더 자동 등록 및 앱 내 원본 음성 재생을 지원합니다.")
 
-# --- [보안 강화] 앱 접속 비밀번호 확인 (Secrets에 app_password를 설정한 경우에만 작동) ---
+# --- [보안 강화] 앱 접속 비밀번호 확인 ---
 if "app_password" in st.secrets:
     if not st.session_state.get("password_verified", False):
         pwd_input = st.text_input("🔒 외부인 접근 차단을 위해 설정된 앱 비밀번호를 입력하세요:", type="password")
@@ -121,10 +118,17 @@ try:
         }
     }
 except Exception:
-    st.error("⚠️ `.streamlit/secrets.toml` 설정 파일을 찾을 수 없거나 형식이 올바르지 않습니다. 설명서의 필수 조건 가이드를 확인해 주세요.")
+    st.error("⚠️ `.streamlit/secrets.toml` 설정 파일을 찾을 수 없거나 형식이 올바르지 않습니다.")
     st.stop()
 
-# --- [핵심 업그레이드] Secrets에 저장된 refresh_token이 있으면 로그인 화면 없이 즉시 자동 연동! ---
+# --- [서버 캐시 설정] 보안 키(Code Verifier) 유지를 위한 저장소 생성 ---
+@st.cache_resource
+def get_flow_store():
+    return {}
+
+flow_store = get_flow_store()
+
+# --- [핵심 업그레이드] Secrets에 저장된 refresh_token이 있으면 자동 연동! ---
 if 'credentials' not in st.session_state and "refresh_token" in oauth_secrets:
     try:
         auto_creds = Credentials(
@@ -140,19 +144,26 @@ if 'credentials' not in st.session_state and "refresh_token" in oauth_secrets:
     except Exception as auto_err:
         st.warning(f"자동 로그인 토큰 갱신 중 확인이 필요합니다. 다시 로그인해 주세요: {auto_err}")
 
-# --- [2단계] 최초 1회 로그인 처리 (403 에러 방지용 새 창 열기 방식 적용) ---
+# --- [2단계] 최초 1회 로그인 처리 (보안 키 분실 방지 캐시 로직 및 target="_top" 적용) ---
 if 'credentials' not in st.session_state:
-    if "code" in st.query_params:
+    if "code" in st.query_params and "state" in st.query_params:
         auth_code = st.query_params["code"]
+        state_key = st.query_params["state"]
         try:
-            flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
-            flow.fetch_token(code=auth_code)
-            st.session_state['credentials'] = flow.credentials
-            # 최초 로그인 성공 시 영구 자동 로그인을 위한 토큰 안내 표시용 저장
-            if flow.credentials.refresh_token:
-                st.session_state['new_refresh_token'] = flow.credentials.refresh_token
-            st.query_params.clear()
-            st.rerun()
+            if state_key in flow_store:
+                flow = flow_store.pop(state_key) 
+                flow.fetch_token(code=auth_code)
+                st.session_state['credentials'] = flow.credentials
+                if flow.credentials.refresh_token:
+                    st.session_state['new_refresh_token'] = flow.credentials.refresh_token
+                st.query_params.clear()
+                st.rerun()
+            else:
+                st.warning("로그인 세션이 만료되었습니다. 처음부터 다시 시도해 주세요.")
+                st.query_params.clear()
+                if st.button("🔄 다시 로그인"):
+                    st.rerun()
+                st.stop()
         except Exception as e:
             st.error(f"인증 처리 중 오류가 발생했습니다: {e}")
             if st.button("🔄 다시 로그인 시도"):
@@ -161,27 +172,27 @@ if 'credentials' not in st.session_state:
             st.stop()
     else:
         flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
-        auth_url, _ = flow.authorization_url(
+        auth_url, state_key = flow.authorization_url(
             prompt='consent',
             access_type='offline',
             include_granted_scopes='true'
         )
+        flow_store[state_key] = flow 
         
         st.warning("🔒 최초 1회 구글 계정 연동이 필요합니다. 아래 버튼을 눌러 권한을 허용해 주세요.")
-        # 핵심 수정: target="_self"를 target="_blank"로 변경하여 구글의 iframe 403 차단 완벽 우회!
         st.markdown(
-            f'<a href="{auth_url}" target="_blank" rel="noopener noreferrer">'
+            f'<a href="{auth_url}" target="_top">'
             f'<button style="background-color:#4285F4; color:white; padding:12px 20px; border:none; border-radius:6px; cursor:pointer; font-size:16px; font-weight:bold;">'
-            f'🚀 Google 계정으로 안전하게 로그인 (새 창으로 열림)</button></a>',
+            f'🚀 Google 계정으로 안전하게 로그인</button></a>',
             unsafe_allow_html=True
         )
-        st.info("💡 버튼을 누르면 새 탭에서 구글 로그인이 진행됩니다. 완료되면 자동으로 이 앱의 마이크 화면이 열립니다!")
+        st.info("💡 로그인이 완료되면 자동으로 이 앱의 마이크 화면으로 돌아옵니다!")
         st.stop()
 
 # 최초 로그인 직후, 평생 로그인 없이 쓰기 위한 refresh_token 설정 안내 박스 표시
 if 'new_refresh_token' in st.session_state and "refresh_token" not in oauth_secrets:
     with st.expander("🎁 [중요] 앞으로 로그인 없이 앱을 켜자마자 바로 쓰려면 여기를 클릭하세요!", expanded=True):
-        st.write("아래의 코드를 복사해서 Streamlit 관리자 화면의 **Secrets(비밀)** 맨 아랫줄에 추가로 붙여넣고 저장하세요. 그러면 앞으로는 로그인 버튼을 누를 필요 없이 앱을 켜자마자 1초 만에 마이크 화면이 바로 나옵니다!")
+        st.write("아래의 코드를 복사해서 Streamlit 관리자 화면의 **Secrets(비밀)** 맨 아랫줄에 추가로 붙여넣고 저장하세요.")
         st.code(f'refresh_token = "{st.session_state["new_refresh_token"]}"', language="toml")
 
 # --- [3단계] 일일 무료 사용량 추적기 및 중복 방지 초기화 ---
@@ -196,7 +207,6 @@ if "last_processed_hash" not in st.session_state:
 
 # --- [4단계] 장시간 토큰 자동 갱신 및 구글 연동 보조 함수들 ---
 def get_valid_credentials():
-    """2시간 장시간 회의 후에도 로그인 세션이 끊기지 않도록 만료된 토큰을 자동 연장합니다."""
     creds = st.session_state['credentials']
     if creds and creds.expired and creds.refresh_token:
         try:
@@ -207,7 +217,6 @@ def get_valid_credentials():
     return creds
 
 def add_to_google_calendar(creds, summary, assignee, details, due_date, event_time):
-    """추출된 날짜/시간이 있을 때 구글 캘린더에 일정을 자동 등록합니다."""
     if not due_date:
         return "일정 없음 (시트만 저장)"
     
@@ -241,7 +250,6 @@ def add_to_google_calendar(creds, summary, assignee, details, due_date, event_ti
         return f"⚠️ 캘린더 형식 오류 ({cal_err})"
 
 def upload_audio_to_drive(creds, audio_bytes, mime_type):
-    """원본 음성 파일을 구글 드라이브에 증거 자료로 백업하고 링크를 반환합니다."""
     authed_session = AuthorizedSession(creds)
     ext = "mp3" if "mp3" in mime_type else ("m4a" if "mp4" in mime_type else "wav")
     metadata = {"name": f"Voice_Record_{datetime.now().strftime('%Y%m%d_%H%M%S')}.{ext}"}
@@ -262,7 +270,6 @@ def upload_audio_to_drive(creds, audio_bytes, mime_type):
         return ""
 
 def download_audio_from_drive(creds, drive_url):
-    """구글 드라이브 링크에서 파일 ID를 추출해 앱 내 재생용 오디오 바이트를 가져옵니다."""
     match = re.search(r'/d/([a-zA-Z0-9_-]+)', drive_url)
     if not match:
         return None
@@ -277,7 +284,6 @@ def download_audio_from_drive(creds, drive_url):
         return None
 
 def save_record_to_sheet(creds, row_data):
-    """구글 스프레드시트에 데이터를 저장합니다. (추후 로컬 서버 DB 전환 시 이 함수만 교체)"""
     client_gspread = gspread.authorize(creds)
     try:
         sheet = client_gspread.open(SHEET_NAME).sheet1
@@ -305,17 +311,15 @@ st.info(
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
 st.markdown("🔑 **[무료 Gemini API 키 발급받기 (Google AI Studio)](https://aistudio.google.com/app/apikey)**")
-# Secrets에 gemini_api_key가 저장되어 있으면 자동으로 불러와서 채워줌
 default_gemini_key = st.secrets.get("gemini_api_key", oauth_secrets.get("gemini_api_key", ""))
 user_api_key = st.text_input("1️⃣ 본인의 무료 Gemini API 키를 입력하세요:", value=default_gemini_key, type="password")
 
-# 사용자 선택 스위치: 녹음 파일 백업 및 시트 저장 여부 결정
 save_audio_toggle = st.checkbox(
-    "💾 [저장 여부 선택] 원본 음성 구글 드라이브 증거 백업 및 구글 시트 누적 저장하기 (체크 해제 시 화면 분석만 수행)",
+    "💾 [저장 여부 선택] 원본 음성 구글 드라이브 증거 백업 및 구글 시트 누적 저장하기",
     value=True
 )
 
-# --- [6단계] 탭 구성: 탭1(음성 입력/변환) & 탭2(저장된 녹음 리스트 조회/듣기) ---
+# --- [6단계] 탭 구성 ---
 tab1, tab2 = st.tabs(["🎙️ 실시간 녹음 및 파일 변환", "📁 저장된 녹음 리스트 조회 및 바로 듣기"])
 
 with tab1:
@@ -406,7 +410,6 @@ with tab1:
                 
                 if save_audio_toggle:
                     with st.spinner("💾 인증 확인 후 구글 시트 기록, 캘린더 등록 및 원본 음성 드라이브 백업 중..."):
-                        # 저장 직전 토큰 만료 여부 확인 및 자동 갱신
                         creds = get_valid_credentials()
                         calendar_status = add_to_google_calendar(creds, summary, assignee, details, due_date, event_time)
                         drive_link = upload_audio_to_drive(creds, audio_bytes, mime_type)
