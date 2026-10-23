@@ -20,7 +20,9 @@ from google.genai import types
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
-AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음"
+
+# [요청 반영 완료] 체크박스 문구를 직관적으로 수정
+AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음 여부 (체크를 하게 되면 음성원본이 저장됩니다)"
 
 REDIRECT_URI = 'https://public-voice-task.streamlit.app/'
 SHEET_NAME = 'Voice_Log_DB'
@@ -48,6 +50,7 @@ KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
 # [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수
+# 나중에 분류 기준이나 회의록 양식을 바꾸고 싶을 때 이 함수 내부만 수정하세요!
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -104,6 +107,7 @@ premium_css = f"""
         font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }}
 
+    /* 1. 상단 우측 GitHub/Fork 및 하단 Streamlit 링크 숨김 처리 */
     #MainMenu {{visibility: hidden !important; display: none !important;}}
     header {{visibility: hidden !important; display: none !important;}}
     footer {{visibility: hidden !important; display: none !important;}}
@@ -114,16 +118,18 @@ premium_css = f"""
     .viewerBadge_container__1QSob {{display: none !important;}}
     .styles_viewerBadge__1yB5_ {{display: none !important;}}
 
+    /* 2. 전체 레이아웃 여백 최적화 */
     .block-container {{
         padding-top: 1.2rem !important;
         padding-bottom: 2.5rem !important;
         max-width: 880px !important;
     }}
 
+    /* 3. 상단 프리미엄 히어로 배너 (모바일 한 줄 표시 최적화) */
     .premium-header {{
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
         color: #ffffff;
-        padding: 26px 28px;
+        padding: 24px 20px;
         border-radius: 18px;
         box-shadow: 0 10px 25px -5px rgba(49, 46, 129, 0.35);
         margin-bottom: 20px;
@@ -133,33 +139,39 @@ premium_css = f"""
         display: inline-block;
         background: rgba(255, 255, 255, 0.18);
         color: #e0e7ff;
-        font-size: 12px;
+        font-size: 11px;
         font-weight: 700;
         padding: 4px 10px;
         border-radius: 20px;
         margin-bottom: 10px;
         letter-spacing: 0.5px;
     }}
+    /* 스마트폰 화면 폭에 맞춰 글자 크기가 자동 조절되어 무조건 한 줄로 표시됨 */
     .premium-title {{
-        font-size: 24px;
+        font-size: clamp(16px, 4.8vw, 24px);
+        white-space: nowrap;
+        overflow: hidden;
+        text-overflow: ellipsis;
         font-weight: 800;
         margin: 0 0 8px 0;
         letter-spacing: -0.5px;
         line-height: 1.3;
     }}
     .premium-subtitle {{
-        font-size: 14px;
+        font-size: clamp(11.5px, 3.2vw, 14px);
         color: #c7d2fe;
         margin: 0;
         font-weight: 400;
         line-height: 1.5;
+        word-break: keep-all;
     }}
 
+    /* 4. 대시보드 및 안내 카드 스타일 */
     .usage-card {{
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 14px;
-        padding: 16px 20px;
+        padding: 16px 18px;
         box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04);
         margin-bottom: 12px;
     }}
@@ -172,15 +184,15 @@ premium_css = f"""
     .usage-grid {{
         display: flex;
         justify-content: space-between;
-        gap: 10px;
+        gap: 8px;
         flex-wrap: wrap;
     }}
     .usage-item {{
         background: #f8fafc;
         border-radius: 10px;
-        padding: 10px 14px;
+        padding: 10px 12px;
         flex: 1;
-        min-width: 120px;
+        min-width: 110px;
         border: 1px solid #f1f5f9;
     }}
     .usage-label {{
@@ -189,32 +201,37 @@ premium_css = f"""
         margin-bottom: 4px;
     }}
     .usage-value {{
-        font-size: 16px;
+        font-size: 15px;
         font-weight: 800;
         color: #3b82f6;
     }}
 
+    /* 5. 마이크 녹음 상태 안내 카드 */
     .mic-guide-card {{
         background: linear-gradient(to right, #fff5f5, #ffffff);
         border: 1px solid #fecaca;
         border-left: 5px solid #ef4444;
         border-radius: 12px;
-        padding: 15px 18px;
+        padding: 15px 16px;
         margin-top: 8px;
         margin-bottom: 14px;
         box-shadow: 0 2px 8px rgba(239, 68, 68, 0.08);
+        word-break: keep-all;
     }}
 
+    /* 6. 로그인 전 웰컴 카드 (줄바꿈 깔끔하게 정리) */
     .login-card {{
         background: #ffffff;
         border: 1px solid #e2e8f0;
         border-radius: 16px;
-        padding: 32px 24px;
+        padding: 30px 20px;
         text-align: center;
         box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05);
         margin-top: 15px;
+        word-break: keep-all;
     }}
 
+    /* 7. 팝업 내부 단계별 박스 스타일 */
     .step-guide-box {{
         background: #f8fafc;
         border: 1px solid #e2e8f0;
@@ -225,8 +242,10 @@ premium_css = f"""
         font-size: 14px;
         color: #334155;
         line-height: 1.5;
+        word-break: keep-all;
     }}
 
+    /* 8. 버튼 및 탭 세련되게 다듬기 */
     .stButton > button {{
         border-radius: 10px !important;
         font-weight: 700 !important;
@@ -238,7 +257,7 @@ premium_css = f"""
     }}
     .stTabs [data-baseweb="tab"] {{
         border-radius: 10px 10px 0 0 !important;
-        padding: 10px 18px !important;
+        padding: 10px 16px !important;
         font-weight: 700 !important;
     }}
 </style>
@@ -282,6 +301,7 @@ def get_flow_store():
 
 flow_store = get_flow_store()
 
+# 권한 스코프 누락 시 재로그인 유도
 if 'credentials' in st.session_state:
     saved_scopes = st.session_state['credentials'].scopes or []
     if 'https://www.googleapis.com/auth/calendar.events' not in saved_scopes:
@@ -362,8 +382,8 @@ if 'credentials' not in st.session_state:
             f"""
             <div class="login-card">
                 <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
-                <h3 style="margin: 0 0 10px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
-                <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.6;">
+                <h3 style="margin: 0 0 12px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
+                <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.7;">
                     서비스를 시작하려면 본인의 구글 계정으로 로그인해 주세요.<br>
                     한 번 로그인하면 <b>로그아웃 전까지 계정이 자동 유지</b>되며,<br>
                     모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
@@ -372,10 +392,10 @@ if 'credentials' not in st.session_state:
                     display: inline-block;
                     background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
                     color: white;
-                    padding: 14px 28px;
+                    padding: 14px 24px;
                     text-decoration: none;
                     border-radius: 12px;
-                    font-size: 16px;
+                    font-size: 15px;
                     font-weight: 700;
                     box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
                     ">
@@ -404,18 +424,19 @@ if "last_processed_hash" not in st.session_state:
 def show_api_guide_modal():
     st.markdown(
         """
-        <div style="margin-bottom: 14px; font-size: 14px; color: #475569;">
-            AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다. <b>(최초 1회만 진행 / 평생 무료)</b>
+        <div style="margin-bottom: 14px; font-size: 14px; color: #475569; line-height: 1.6; word-break: keep-all;">
+            AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
+            <b>(최초 1회만 진행 / 평생 무료)</b>
         </div>
         <div style="text-align: center; margin-bottom: 18px;">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="
                 display: inline-block;
                 background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
                 color: white;
-                padding: 12px 24px;
+                padding: 12px 20px;
                 text-decoration: none;
                 border-radius: 10px;
-                font-size: 15px;
+                font-size: 14px;
                 font-weight: 700;
                 box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
             ">
@@ -424,7 +445,8 @@ def show_api_guide_modal():
         </div>
         <div class="step-guide-box">
             <b>[1단계] 구글 로그인 및 약관 동의</b><br>
-            위 파란색 버튼을 눌러 열린 사이트에서 본인의 <b>구글 계정(Gmail)</b>으로 로그인합니다. 처음 접속 시 약관 동의 창이 뜨면 체크박스에 체크 후 파란색 <b>[Continue(계속)]</b> 버튼을 누릅니다.
+            위 파란색 버튼을 눌러 열린 사이트에서 본인의 <b>구글 계정(Gmail)</b>으로 로그인합니다.<br>
+            처음 접속 시 약관 동의 창이 뜨면 체크박스에 체크 후 파란색 <b>[Continue(계속)]</b> 버튼을 누릅니다.
         </div>
         <div class="step-guide-box">
             <b>[2단계] API 키 생성 버튼 클릭</b><br>
@@ -436,7 +458,8 @@ def show_api_guide_modal():
         </div>
         <div class="step-guide-box">
             <b>[4단계] 발급된 키 복사 및 아래 칸에 붙여넣기</b><br>
-            잠시 후 <code>AIzaSy...</code>로 시작하는 긴 영어 암호가 나타나면 우측의 <b>[Copy(복사)]</b> 버튼을 누른 뒤, <b>바로 아래 입력칸에 붙여넣고 저장</b>을 누르면 완료됩니다!
+            잠시 후 <code>AIzaSy...</code>로 시작하는 긴 영어 암호가 나타나면 우측의 <b>[Copy(복사)]</b> 버튼을 누른 뒤,<br>
+            <b>바로 아래 입력칸에 붙여넣고 저장</b>을 누르면 완료됩니다!
         </div>
         """,
         unsafe_allow_html=True
@@ -570,9 +593,17 @@ else:
             st.query_params.clear()
             st.rerun()
 
+# 지인 공유 문구 없이 깔끔하게 줄바꿈된 휴대폰 바탕화면 추가 안내만 유지
 with st.expander("📲 휴대폰 바탕화면(홈 화면)에 추가하여 편리하게 쓰는 법"):
     st.markdown(
-        "**바탕화면 추가 (자동 로그인 유지):** 구글 로그인과 API 키 입력까지 마친 후, 휴대폰 브라우저 메뉴에서 **[홈 화면에 추가]**를 누르세요. 앞으로 앱을 켤 때마다 매번 로그인이나 키 입력 없이 바로 마이크 화면이 열립니다!"
+        """
+        <div style="font-size: 14px; color: #334155; line-height: 1.7; word-break: keep-all;">
+            • <b>자동 로그인 및 키 유지 방법:</b><br>
+            구글 로그인과 무료 API 키 입력까지 모두 마친 상태에서, 휴대폰 브라우저 메뉴(점 3개 또는 공유 버튼)를 눌러 <b>[홈 화면에 추가]</b>를 선택하세요.<br>
+            • 그러면 바탕화면에 생성된 앱 아이콘을 누를 때마다 <b>매번 로그인이나 키를 다시 입력할 필요 없이 1초 만에 바로 마이크 화면</b>이 열립니다!
+        </div>
+        """,
+        unsafe_allow_html=True
     )
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
@@ -607,12 +638,16 @@ st.markdown(
 )
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
+# API 키 미등록 시 안내 문구 줄바꿈 최적화 및 팝업 버튼 노출
 if not st.session_state["saved_api_key"]:
     st.markdown(
         """
-        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:16px; margin-bottom:10px;">
+        <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:16px; margin-bottom:10px; line-height:1.6; word-break:keep-all;">
             <b style="color:#1e40af; font-size:15px;">🔑 최초 1회 무료 Gemini API 키 등록이 필요합니다</b><br>
-            <span style="color:#3b82f6; font-size:13px;">한 번만 입력하고 엔터를 치면 이 입력창은 화면에서 깔끔하게 사라지며, 다음 접속 시에도 자동으로 유지됩니다.</span>
+            <span style="color:#3b82f6; font-size:13.5px;">
+                한 번만 입력하고 엔터를 치면 이 입력창은 화면에서 깔끔하게 사라지며,<br>
+                다음 접속 시에도 자동으로 유지됩니다.
+            </span>
         </div>
         """,
         unsafe_allow_html=True
@@ -637,6 +672,7 @@ if not st.session_state["saved_api_key"]:
 
 user_api_key = st.session_state["saved_api_key"]
 
+# [요청 반영] 수정된 직관적인 체크박스 문구 표시
 save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
 # --- [6단계] 탭 구성: 탭1(음성 입력/변환) & 탭2(저장된 녹음 리스트 조회/듣기) ---
@@ -653,7 +689,7 @@ with tab1:
             """
             <div class="mic-guide-card">
                 <div style="font-size:15px; font-weight:800; color:#991b1b; margin-bottom:6px;">🎙️ 실시간 녹음 상태 확인 안내</div>
-                <div style="font-size:14px; color:#374151; line-height:1.6;">
+                <div style="font-size:14px; color:#374151; line-height:1.7;">
                     • 아래 <b>검정색 마이크</b>를 클릭하면 ➡️ 즉시 <b style="color:#ef4444;">🔴 빨간색 마이크 (녹음중)</b> 상태로 변합니다.<br>
                     • 말씀을 마친 후 <b style="color:#ef4444;">🔴 빨간색 마이크</b>를 다시 클릭하면 ➡️ <b>녹음중이 사라지며 즉시 자동 변환</b>됩니다!
                 </div>
@@ -680,9 +716,9 @@ with tab1:
     else:
         st.markdown(
             """
-            <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #3b82f6; border-radius:12px; padding:15px 18px; margin-top:8px; margin-bottom:14px;">
+            <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #3b82f6; border-radius:12px; padding:15px 18px; margin-top:8px; margin-bottom:14px; word-break:keep-all;">
                 <div style="font-size:15px; font-weight:800; color:#1e3a8a; margin-bottom:6px;">📂 녹음 파일 업로드 및 변환 방법</div>
-                <div style="font-size:14px; color:#334155; line-height:1.6;">
+                <div style="font-size:14px; color:#334155; line-height:1.7;">
                     1. 아래 <b>[Browse files]</b> 버튼을 눌러 휴대폰이나 PC에 저장된 음성 파일(mp3, wav, m4a)을 선택하세요.<br>
                     2. 파일이 첨부되면 아래에 나타나는 <b>[🚀 업로드한 파일 변환 및 저장 실행]</b> 버튼을 클릭해야 변환이 시작됩니다.
                 </div>
@@ -853,7 +889,7 @@ with tab2:
                         with col2:
                             st.markdown(f"🔗 [내 구글 드라이브에서 원본 음성 파일 직접 열기]({audio_url})")
                     else:
-                        st.caption("🎵 이 기록은 '음성 원본 녹음' 체크 해제 상태로 저장되어 텍스트 요약만 보관되어 있습니다.")
+                        st.caption("🎵 이 기록은 '음성 원본 녹음 여부' 체크 해제 상태로 저장되어 텍스트 요약만 보관되어 있습니다.")
     except gspread.exceptions.SpreadsheetNotFound:
         st.info(f"아직 내 구글 드라이브에 생성된 스프레드시트(`{SHEET_NAME}`)가 없습니다. 첫 녹음을 저장하면 자동으로 생성됩니다!")
     except Exception as list_err:
