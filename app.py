@@ -14,19 +14,21 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession, Request
 from google import genai
 from google.genai import types
+import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경, 타이틀 및 무료 한도 설정
+# [사용자 수정 가능 변수 구역 1] 기본 환경, 타이틀 및 영구 유지 기간 설정
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
-
-# [요청 반영 완료] 체크박스 문구를 직관적으로 수정
 AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음 여부 (체크를 하게 되면 음성원본이 저장됩니다)"
 
 REDIRECT_URI = 'https://public-voice-task.streamlit.app/'
 SHEET_NAME = 'Voice_Log_DB'
 GEMINI_MODEL = 'gemini-2.5-flash'
+
+# 스마트폰 앱을 닫아도 로그인과 API 키가 유지되는 기간 (기본 365일)
+COOKIE_EXPIRY_DAYS = 365
 
 # 무료 조건 한도 설정 (1회 최대 120분, 하루 누적 600분 / 500회)
 MAX_SINGLE_FREE_MINUTES = 120
@@ -146,7 +148,6 @@ premium_css = f"""
         margin-bottom: 10px;
         letter-spacing: 0.5px;
     }}
-    /* 스마트폰 화면 폭에 맞춰 글자 크기가 자동 조절되어 무조건 한 줄로 표시됨 */
     .premium-title {{
         font-size: clamp(16px, 4.8vw, 24px);
         white-space: nowrap;
@@ -219,7 +220,7 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* 6. 로그인 전 웰컴 카드 (줄바꿈 깔끔하게 정리) */
+    /* 6. 로그인 전 웰컴 카드 */
     .login-card {{
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -294,7 +295,10 @@ except Exception:
     st.error("⚠️ `.streamlit/secrets.toml` 설정 파일을 찾을 수 없거나 형식이 올바르지 않습니다.")
     st.stop()
 
-# --- [서버 캐시 설정] 다중 사용자 각각의 보안 키 유지를 위한 임시 저장소 ---
+# --- [스마트폰 영구 저장소(CookieManager) 및 서버 캐시 초기화] ---
+cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
+all_cookies = cookie_manager.get_all() or {}
+
 @st.cache_resource
 def get_flow_store():
     return {}
@@ -307,35 +311,45 @@ if 'credentials' in st.session_state:
     if 'https://www.googleapis.com/auth/calendar.events' not in saved_scopes:
         del st.session_state['credentials']
 
-# --- [스마트폰 바탕화면 앱 전용] URL 파라미터(rt, ak)를 통한 계정 및 API 키 자동 복구 ---
-if 'credentials' not in st.session_state and "rt" in st.query_params:
-    try:
-        user_rt = st.query_params["rt"]
-        auto_creds = Credentials(
-            token=None,
-            refresh_token=user_rt,
-            token_uri=oauth_secrets["token_uri"],
-            client_id=oauth_secrets["client_id"],
-            client_secret=oauth_secrets["client_secret"],
-            scopes=SCOPES
-        )
-        auto_creds.refresh(Request())
-        st.session_state['credentials'] = auto_creds
-    except Exception:
-        if "rt" in st.query_params:
-            del st.query_params["rt"]
-
-if "saved_api_key" not in st.session_state:
-    if "ak" in st.query_params:
+# --- [핵심 해결책] 앱을 닫았다 열어도 브라우저 쿠키 및 URL에서 로그인/API 키 100% 자동 복구 ---
+# 1. 구글 로그인 토큰(rt) 복구 (쿠키 우선 확인 -> URL 파라미터 확인)
+if 'credentials' not in st.session_state and not st.session_state.get("logged_out_flag"):
+    saved_rt = all_cookies.get("voice_rt") or st.query_params.get("rt", "")
+    if saved_rt:
         try:
-            decoded_key = base64.b64decode(st.query_params["ak"].encode()).decode()
-            st.session_state["saved_api_key"] = decoded_key
+            auto_creds = Credentials(
+                token=None,
+                refresh_token=saved_rt,
+                token_uri=oauth_secrets["token_uri"],
+                client_id=oauth_secrets["client_id"],
+                client_secret=oauth_secrets["client_secret"],
+                scopes=SCOPES
+            )
+            auto_creds.refresh(Request())
+            st.session_state['credentials'] = auto_creds
+            # URL에도 동기화하여 바탕화면 바로가기 안정성 극대화
+            if "rt" not in st.query_params:
+                st.query_params["rt"] = saved_rt
         except Exception:
-            st.session_state["saved_api_key"] = ""
-    else:
-        st.session_state["saved_api_key"] = ""
+            if "rt" in st.query_params:
+                del st.query_params["rt"]
 
-# --- [2단계] 다중 사용자 개별 로그인 세션 격리 및 오프라인 토큰 갱신 설정 ---
+# 2. Gemini API 키(ak) 영구 복구 (쿠키 우선 확인 -> URL 파라미터 확인)
+if "saved_api_key" not in st.session_state:
+    st.session_state["saved_api_key"] = ""
+
+if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
+    encoded_ak = all_cookies.get("voice_ak") or st.query_params.get("ak", "")
+    if encoded_ak:
+        try:
+            decoded_key = base64.b64decode(encoded_ak.encode()).decode()
+            st.session_state["saved_api_key"] = decoded_key
+            if "ak" not in st.query_params:
+                st.query_params["ak"] = encoded_ak
+        except Exception:
+            pass
+
+# --- [2단계] 다중 사용자 개별 로그인 처리 및 영구 쿠키 각인 ---
 if 'credentials' not in st.session_state:
     if "code" in st.query_params and "state" in st.query_params:
         auth_code = st.query_params["code"]
@@ -346,13 +360,24 @@ if 'credentials' not in st.session_state:
                 flow.fetch_token(code=auth_code)
                 creds = flow.credentials
                 st.session_state['credentials'] = creds
+                st.session_state["logged_out_flag"] = False
                 
-                existing_ak = st.query_params.get("ak", "")
+                existing_ak = st.query_params.get("ak", "") or all_cookies.get("voice_ak", "")
                 st.query_params.clear()
+                
+                # 발급된 refresh_token을 브라우저 쿠키(365일)와 URL에 동시에 영구 저장!
                 if creds.refresh_token:
                     st.query_params["rt"] = creds.refresh_token
+                    cookie_manager.set(
+                        "voice_rt", 
+                        creds.refresh_token, 
+                        expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS),
+                        key="set_rt_cookie"
+                    )
                 if existing_ak:
                     st.query_params["ak"] = existing_ak
+                    
+                time.sleep(0.4)  # 브라우저가 쿠키를 안전하게 기록할 시간 부여
                 st.rerun()
             else:
                 st.warning("로그인 대기 시간이 지났습니다. 아래 버튼을 눌러 다시 로그인해 주세요.")
@@ -371,6 +396,7 @@ if 'credentials' not in st.session_state:
             flow_store.clear()
             
         flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
+        # prompt='consent'를 통해 매 로그인 시마다 영구 토큰(refresh_token)이 100% 발급되도록 강제
         auth_url, state_key = flow.authorization_url(
             prompt='consent',
             access_type='offline',
@@ -385,7 +411,7 @@ if 'credentials' not in st.session_state:
                 <h3 style="margin: 0 0 12px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
                 <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.7;">
                     서비스를 시작하려면 본인의 구글 계정으로 로그인해 주세요.<br>
-                    한 번 로그인하면 <b>로그아웃 전까지 계정이 자동 유지</b>되며,<br>
+                    한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
                     모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
                 </p>
                 <a href="{auth_url}" target="_blank" rel="noopener noreferrer" style="
@@ -419,14 +445,29 @@ if st.session_state.get("usage_date") != today_str:
 if "last_processed_hash" not in st.session_state:
     st.session_state["last_processed_hash"] = None
 
-# --- [4단계] 장시간 토큰 자동 갱신, 팝업창(Dialog) 및 구글 연동 보조 함수들 ---
+# --- [4단계] API 키 영구 저장 함수, 팝업창(Dialog) 및 구글 연동 보조 함수들 ---
+def save_api_key_permanently(raw_key):
+    """입력된 API 키를 브라우저 쿠키(365일), 세션, URL에 동시에 저장하여 앱을 닫아도 절대 풀리지 않게 합니다."""
+    clean_key = raw_key.strip()
+    encoded_val = base64.b64encode(clean_key.encode()).decode()
+    st.session_state["saved_api_key"] = clean_key
+    st.session_state["key_cleared_flag"] = False
+    st.query_params["ak"] = encoded_val
+    cookie_manager.set(
+        "voice_ak", 
+        encoded_val, 
+        expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS),
+        key="set_ak_cookie"
+    )
+    time.sleep(0.4)
+
 @st.dialog("🔑 무료 Gemini API 키 1분 발급 절차 안내", width="large")
 def show_api_guide_modal():
     st.markdown(
         """
         <div style="margin-bottom: 14px; font-size: 14px; color: #475569; line-height: 1.6; word-break: keep-all;">
             AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
-            <b>(최초 1회만 진행 / 평생 무료)</b>
+            <b>(최초 1회만 등록하면 앱을 닫아도 영구 유지됩니다 / 평생 무료)</b>
         </div>
         <div style="text-align: center; margin-bottom: 18px;">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="
@@ -466,11 +507,9 @@ def show_api_guide_modal():
     )
     st.markdown("---")
     modal_key = st.text_input("👇 발급받아 복사한 API 키를 여기에 바로 붙여넣으세요:", type="password", key="modal_api_input")
-    if st.button("✅ API 키 저장 및 시작하기", type="primary", use_container_width=True):
+    if st.button("✅ API 키 영구 저장 및 시작하기", type="primary", use_container_width=True):
         if modal_key.strip():
-            clean_key = modal_key.strip()
-            st.session_state["saved_api_key"] = clean_key
-            st.query_params["ak"] = base64.b64encode(clean_key.encode()).decode()
+            save_api_key_permanently(modal_key)
             st.rerun()
         else:
             st.warning("⚠️ 먼저 복사한 API 키를 입력칸에 붙여넣어 주세요.")
@@ -568,19 +607,33 @@ def save_record_to_sheet(creds, row_data):
 if st.session_state["saved_api_key"]:
     col_status, col_key_btn, col_logout = st.columns([3.2, 1.1, 1.1])
     with col_status:
-        st.success("✅ 구글 계정 및 AI 키 자동 유지 활성화됨")
+        st.success("✅ 구글 계정 및 AI 키 영구 자동 유지 활성화됨")
     with col_key_btn:
         if st.button("🔑 API 키 변경", use_container_width=True):
             st.session_state["saved_api_key"] = ""
+            st.session_state["key_cleared_flag"] = True
             if "ak" in st.query_params:
                 del st.query_params["ak"]
+            try:
+                cookie_manager.delete("voice_ak", key="del_ak_cookie")
+            except Exception:
+                pass
+            time.sleep(0.3)
             st.rerun()
     with col_logout:
         if st.button("🚪 로그아웃", use_container_width=True):
             if 'credentials' in st.session_state:
                 del st.session_state['credentials']
             st.session_state["saved_api_key"] = ""
+            st.session_state["logged_out_flag"] = True
+            st.session_state["key_cleared_flag"] = True
             st.query_params.clear()
+            try:
+                cookie_manager.delete("voice_rt", key="del_rt_cookie")
+                cookie_manager.delete("voice_ak", key="del_ak_cookie_logout")
+            except Exception:
+                pass
+            time.sleep(0.3)
             st.rerun()
 else:
     col_status, col_logout = st.columns([4, 1.2])
@@ -590,17 +643,22 @@ else:
         if st.button("🚪 로그아웃", use_container_width=True):
             if 'credentials' in st.session_state:
                 del st.session_state['credentials']
+            st.session_state["logged_out_flag"] = True
             st.query_params.clear()
+            try:
+                cookie_manager.delete("voice_rt", key="del_rt_only")
+            except Exception:
+                pass
+            time.sleep(0.3)
             st.rerun()
 
-# 지인 공유 문구 없이 깔끔하게 줄바꿈된 휴대폰 바탕화면 추가 안내만 유지
 with st.expander("📲 휴대폰 바탕화면(홈 화면)에 추가하여 편리하게 쓰는 법"):
     st.markdown(
         """
         <div style="font-size: 14px; color: #334155; line-height: 1.7; word-break: keep-all;">
-            • <b>자동 로그인 및 키 유지 방법:</b><br>
-            구글 로그인과 무료 API 키 입력까지 모두 마친 상태에서, 휴대폰 브라우저 메뉴(점 3개 또는 공유 버튼)를 눌러 <b>[홈 화면에 추가]</b>를 선택하세요.<br>
-            • 그러면 바탕화면에 생성된 앱 아이콘을 누를 때마다 <b>매번 로그인이나 키를 다시 입력할 필요 없이 1초 만에 바로 마이크 화면</b>이 열립니다!
+            • <b>영구 자동 로그인 및 키 유지 적용됨:</b><br>
+            이제 한 번만 구글 로그인과 API 키 입력을 완료하면 브라우저 내부에 안전하게 기억되어, <b>앱을 완전히 닫았다가 다시 열어도 로그인이나 키 입력 창이 다시 나오지 않습니다!</b><br>
+            • 휴대폰 크롬(또는 사파리) 메뉴에서 <b>[홈 화면에 추가]</b>를 해두시면 일반 앱처럼 1초 만에 바로 마이크 화면을 여실 수 있습니다.
         </div>
         """,
         unsafe_allow_html=True
@@ -638,15 +696,15 @@ st.markdown(
 )
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
-# API 키 미등록 시 안내 문구 줄바꿈 최적화 및 팝업 버튼 노출
+# API 키 미등록 시 안내 카드 + 팝업 버튼 + 저장 버튼 제공
 if not st.session_state["saved_api_key"]:
     st.markdown(
         """
         <div style="background:#eff6ff; border:1px solid #bfdbfe; border-radius:12px; padding:16px; margin-bottom:10px; line-height:1.6; word-break:keep-all;">
             <b style="color:#1e40af; font-size:15px;">🔑 최초 1회 무료 Gemini API 키 등록이 필요합니다</b><br>
             <span style="color:#3b82f6; font-size:13.5px;">
-                한 번만 입력하고 엔터를 치면 이 입력창은 화면에서 깔끔하게 사라지며,<br>
-                다음 접속 시에도 자동으로 유지됩니다.
+                한 번만 입력하고 저장하면 이 입력창은 화면에서 영구적으로 숨겨지며,<br>
+                앱을 닫았다가 다시 켜도 자동으로 유지됩니다.
             </span>
         </div>
         """,
@@ -663,16 +721,21 @@ if not st.session_state["saved_api_key"]:
             unsafe_allow_html=True
         )
         
-    key_input = st.text_input("[1단계] 발급받은 무료 Gemini API 키(AIza...로 시작)를 붙여넣고 엔터(Enter)를 누르세요:", type="password")
-    if key_input.strip():
-        clean_key = key_input.strip()
-        st.session_state["saved_api_key"] = clean_key
-        st.query_params["ak"] = base64.b64encode(clean_key.encode()).decode()
-        st.rerun()
+    col_input, col_save_btn = st.columns([3.5, 1.2])
+    with col_input:
+        key_input = st.text_input("[1단계] 발급받은 무료 Gemini API 키(AIza...로 시작)를 붙여넣으세요:", type="password")
+    with col_save_btn:
+        st.write("")
+        st.write("")
+        save_key_clicked = st.button("💾 키 영구 저장", type="primary", use_container_width=True)
+        
+    if key_input.strip() or save_key_clicked:
+        if key_input.strip():
+            save_api_key_permanently(key_input)
+            st.rerun()
 
 user_api_key = st.session_state["saved_api_key"]
 
-# [요청 반영] 수정된 직관적인 체크박스 문구 표시
 save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
 # --- [6단계] 탭 구성: 탭1(음성 입력/변환) & 탭2(저장된 녹음 리스트 조회/듣기) ---
