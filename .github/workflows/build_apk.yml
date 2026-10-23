@@ -85,8 +85,8 @@ jobs:
                   applicationId "${PACKAGE_ID}"
                   minSdk 24
                   targetSdk 34
-                  versionCode 5
-                  versionName "5.0"
+                  versionCode 6
+                  versionName "6.0"
               }
               buildTypes {
                   release {
@@ -146,7 +146,6 @@ jobs:
           import android.content.pm.PackageManager
           import android.net.Uri
           import android.os.Bundle
-          import android.os.Message
           import android.webkit.*
           import androidx.appcompat.app.AppCompatActivity
           import androidx.core.app.ActivityCompat
@@ -184,8 +183,9 @@ jobs:
                   s.javaScriptEnabled = true
                   s.domStorageEnabled = true
                   s.databaseEnabled = true
+                  // [핵심 해결 5] 다중 창 옵션을 false로 꺼서 팝업 차단을 원천 제거하고 모든 링크가 100% 즉시 이동되게 함!
+                  s.setSupportMultipleWindows(false)
                   s.javaScriptCanOpenWindowsAutomatically = true
-                  s.setSupportMultipleWindows(true)
                   s.mediaPlaybackRequiresUserGesture = false
                   s.allowFileAccess = true
                   s.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
@@ -197,7 +197,15 @@ jobs:
                   webView.webViewClient = object : WebViewClient() {
                       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                           val url = request?.url.toString()
-                          return routeUrl(url)
+                          if (!url.startsWith("http://") && !url.startsWith("https://")) return true
+                          
+                          // Google AI Studio 및 구글 드라이브는 스마트폰 외부 크롬 브라우저로 즉시 열기!
+                          if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
+                              startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                              return true
+                          }
+                          // 구글 로그인 및 앱 내부 이동은 웹뷰에서 그대로 진행!
+                          return false
                       }
 
                       override fun onPageFinished(view: WebView?, url: String?) {
@@ -235,46 +243,6 @@ jobs:
                           startActivityForResult(Intent.createChooser(intent, "음성 파일 선택"), FILE_CHOOSER_CODE)
                           return true
                       }
-
-                      // [핵심 해결] 터치된 링크(HitTestResult)와 WebViewTransport 이중 감지로 100% 링크 즉시 열기!
-                      override fun onCreateWindow(
-                          view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?
-                      ): Boolean {
-                          // 1차 시도: 터치된 HTML 요소에서 URL 직접 추출
-                          val hitResult = view?.hitTestResult
-                          val hitUrl = hitResult?.extra
-                          if (!hitUrl.isNullOrEmpty() && (hitUrl.startsWith("http://") || hitUrl.startsWith("https://"))) {
-                              openTargetUrl(hitUrl)
-                              return false
-                          }
-
-                          // 2차 시도: 브릿지 웹뷰를 통해 이동하려는 주소 가로채기
-                          val tempWebView = WebView(this@MainActivity)
-                          tempWebView.settings.javaScriptEnabled = true
-                          tempWebView.webViewClient = object : WebViewClient() {
-                              private var isHandled = false
-                              override fun shouldOverrideUrlLoading(v: WebView?, req: WebResourceRequest?): Boolean {
-                                  val targetUrl = req?.url.toString()
-                                  if (!isHandled && targetUrl.startsWith("http")) {
-                                      isHandled = true
-                                      openTargetUrl(targetUrl)
-                                      v?.destroy()
-                                  }
-                                  return true
-                              }
-                              override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                                  if (!isHandled && url != null && url.startsWith("http")) {
-                                      isHandled = true
-                                      openTargetUrl(url)
-                                      v?.destroy()
-                                  }
-                              }
-                          }
-                          val transport = resultMsg?.obj as? WebView.WebViewTransport
-                          transport?.webView = tempWebView
-                          resultMsg?.sendToTarget()
-                          return true
-                      }
                   }
 
                   val lastSavedUrl = prefs.getString("saved_full_url", null)
@@ -282,24 +250,6 @@ jobs:
                       webView.loadUrl(lastSavedUrl)
                   } else {
                       webView.loadUrl(BASE_URL)
-                  }
-              }
-
-              private fun routeUrl(url: String): Boolean {
-                  if (!url.startsWith("http://") && !url.startsWith("https://")) return true
-                  if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
-                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                      return true
-                  }
-                  return false
-              }
-
-              private fun openTargetUrl(url: String) {
-                  if (!url.startsWith("http://") && !url.startsWith("https://")) return
-                  if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
-                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                  } else {
-                      webView.loadUrl(url)
                   }
               }
 
