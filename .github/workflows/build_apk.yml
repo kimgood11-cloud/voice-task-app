@@ -85,8 +85,8 @@ jobs:
                   applicationId "${PACKAGE_ID}"
                   minSdk 24
                   targetSdk 34
-                  versionCode 4
-                  versionName "4.0"
+                  versionCode 5
+                  versionName "5.0"
               }
               buildTypes {
                   release {
@@ -197,7 +197,7 @@ jobs:
                   webView.webViewClient = object : WebViewClient() {
                       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                           val url = request?.url.toString()
-                          return handleCustomUrl(url)
+                          return routeUrl(url)
                       }
 
                       override fun onPageFinished(view: WebView?, url: String?) {
@@ -236,23 +236,36 @@ jobs:
                           return true
                       }
 
-                      // [핵심 해결 3] Streamlit의 st.link_button 등 새 창 링크 클릭 시 100% 주소를 가로채서 열어주는 브릿지!
+                      // [핵심 해결] 터치된 링크(HitTestResult)와 WebViewTransport 이중 감지로 100% 링크 즉시 열기!
                       override fun onCreateWindow(
                           view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?
                       ): Boolean {
+                          // 1차 시도: 터치된 HTML 요소에서 URL 직접 추출
+                          val hitResult = view?.hitTestResult
+                          val hitUrl = hitResult?.extra
+                          if (!hitUrl.isNullOrEmpty() && (hitUrl.startsWith("http://") || hitUrl.startsWith("https://"))) {
+                              openTargetUrl(hitUrl)
+                              return false
+                          }
+
+                          // 2차 시도: 브릿지 웹뷰를 통해 이동하려는 주소 가로채기
                           val tempWebView = WebView(this@MainActivity)
                           tempWebView.settings.javaScriptEnabled = true
-                          
                           tempWebView.webViewClient = object : WebViewClient() {
+                              private var isHandled = false
                               override fun shouldOverrideUrlLoading(v: WebView?, req: WebResourceRequest?): Boolean {
                                   val targetUrl = req?.url.toString()
-                                  handleOpenLink(targetUrl)
-                                  v?.destroy()
+                                  if (!isHandled && targetUrl.startsWith("http")) {
+                                      isHandled = true
+                                      openTargetUrl(targetUrl)
+                                      v?.destroy()
+                                  }
                                   return true
                               }
                               override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                                  if (url != null && url != "about:blank") {
-                                      handleOpenLink(url)
+                                  if (!isHandled && url != null && url.startsWith("http")) {
+                                      isHandled = true
+                                      openTargetUrl(url)
                                       v?.destroy()
                                   }
                               }
@@ -272,7 +285,7 @@ jobs:
                   }
               }
 
-              private fun handleCustomUrl(url: String): Boolean {
+              private fun routeUrl(url: String): Boolean {
                   if (!url.startsWith("http://") && !url.startsWith("https://")) return true
                   if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
                       startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
@@ -281,9 +294,8 @@ jobs:
                   return false
               }
 
-              private fun handleOpenLink(url: String) {
+              private fun openTargetUrl(url: String) {
                   if (!url.startsWith("http://") && !url.startsWith("https://")) return
-                  // AI 스튜디오나 드라이브는 외부 크롬 새 창으로 열고, 구글 로그인은 앱 내부 웹뷰에서 바로 이동!
                   if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
                       startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                   } else {
