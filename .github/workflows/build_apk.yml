@@ -21,19 +21,29 @@ jobs:
       - name: 1. 깃허브 저장소 연결
         uses: actions/checkout@v4
 
-      - name: 2. 자바(JDK 17) 환경 설치
+      - name: 2. 자바(JDK 17) 및 Gradle 빌드 도구 설치
         uses: actions/setup-java@v4
         with:
           distribution: 'temurin'
           java-version: '17'
 
-      - name: 3. 안드로이드 빌드 도구(SDK & Gradle) 준비
-        uses: android-actions/setup-android@v3
+      - name: 3. 공식 Gradle 버전(8.4) 설정
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
 
-      - name: 4. '나만의 AI 음성비서' 안드로이드 소스 코드 자동 생성
+      - name: 4. 안드로이드 프로젝트 자동 생성 및 APK 빌드
         run: |
+          # 깃허브 서버에 이미 내장된 공식 안드로이드 SDK 경로 확인 및 라이선스 자동 승인
+          SDK_DIR="/usr/local/lib/android/sdk"
+          yes | $SDK_DIR/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+
+          # 프로젝트 폴더 구조 생성
           mkdir -p android_project/app/src/main/java/com/success/myvoiceassistant
           mkdir -p android_project/app/src/main/res/values
+
+          # [핵심 에러 해결] 안드로이드 SDK 경로를 local.properties에 정확히 고정
+          echo "sdk.dir=$SDK_DIR" > android_project/local.properties
 
           # (1) settings.gradle 생성
           cat << 'EOF' > android_project/settings.gradle
@@ -55,11 +65,11 @@ jobs:
           include ':app'
           EOF
 
-          # (2) 프로젝트 루트 build.gradle 생성
+          # (2) 루트 build.gradle 생성
           cat << 'EOF' > android_project/build.gradle
           plugins {
-              id 'com.android.application' version '8.2.0' apply false
-              id 'org.jetbrains.kotlin.android' version '1.9.20' apply false
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
           }
           EOF
 
@@ -68,6 +78,7 @@ jobs:
           org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
           android.useAndroidX=true
           kotlin.code.style=official
+          android.nonTransitiveRClass=true
           EOF
 
           # (4) 앱 모듈 build.gradle 생성
@@ -107,7 +118,7 @@ jobs:
           }
           EOF
 
-          # (5) AndroidManifest.xml 생성 (어플 이름: 나만의 AI 음성비서, 마이크 권한, 상단바 제거)
+          # (5) AndroidManifest.xml 생성 (보안 강화: usesCleartextTraffic="false" 적용)
           cat << EOF > android_project/app/src/main/AndroidManifest.xml
           <?xml version="1.0" encoding="utf-8"?>
           <manifest xmlns:android="http://schemas.android.com/apk/res/android">
@@ -120,7 +131,7 @@ jobs:
                   android:allowBackup="true"
                   android:label="${APP_NAME}"
                   android:supportsRtl="true"
-                  android:usesCleartextTraffic="true"
+                  android:usesCleartextTraffic="false"
                   android:theme="@style/Theme.AppCompat.Light.NoActionBar">
 
                   <activity
@@ -136,7 +147,7 @@ jobs:
           </manifest>
           EOF
 
-          # (6) MainActivity.kt 생성 (주소창 완벽 숨김, 쿠키 영구 유지, 마이크 및 파일 업로드 연동)
+          # (6) MainActivity.kt 생성 (주소창 숨김, 쿠키 영구 저장, 마이크 및 파일 업로드 연동)
           cat << EOF > android_project/app/src/main/java/com/success/myvoiceassistant/MainActivity.kt
           package ${PACKAGE_ID}
 
@@ -164,7 +175,7 @@ jobs:
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
 
-                  // 1. 스마트폰 마이크 녹음 권한 확인 및 요청
+                  // 스마트폰 마이크 권한 요청
                   if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
                       != PackageManager.PERMISSION_GRANTED) {
                       ActivityCompat.requestPermissions(
@@ -174,11 +185,11 @@ jobs:
                       )
                   }
 
-                  // 2. 주소창이 전혀 없는 전체 화면 웹뷰 생성
+                  // 주소창 없는 전체 화면 웹뷰 설정
                   webView = WebView(this)
                   setContentView(webView)
 
-                  // 3. 쿠키 및 로컬 스토리지 영구 활성화 (자동 로그인 및 API 키 유지)
+                  // 쿠키 영구 보존 활성화
                   val cookieManager = CookieManager.getInstance()
                   cookieManager.setAcceptCookie(true)
                   cookieManager.setAcceptThirdPartyCookies(webView, true)
@@ -191,11 +202,10 @@ jobs:
                   settings.allowFileAccess = true
                   settings.setSupportMultipleWindows(true)
                   
-                  // 구글 OAuth 403 disallowed_useragent 차단을 피하기 위해 표준 모바일 크롬 User-Agent 적용
+                  // 구글 로그인 403 에러 방지용 표준 User-Agent 적용
                   val defaultUA = settings.userAgentString
                   settings.userAgentString = defaultUA.replace("; wv", "")
 
-                  // 4. 페이지 이동 및 쿠키 하드디스크 즉시 기록(Flush)
                   webView.webViewClient = object : WebViewClient() {
                       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                           return false
@@ -207,7 +217,6 @@ jobs:
                       }
                   }
 
-                  // 5. 마이크 실시간 녹음 권한 승인 및 파일 업로드 창 연동
                   webView.webChromeClient = object : WebChromeClient() {
                       override fun onPermissionRequest(request: PermissionRequest?) {
                           request?.let {
@@ -235,7 +244,6 @@ jobs:
                           return true
                       }
 
-                      // 새 창(구글 로그인 및 AI 스튜디오)을 앱 내부에서 주소창 없이 자연스럽게 연결
                       override fun onCreateWindow(
                           view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?
                       ): Boolean {
@@ -261,7 +269,6 @@ jobs:
                       }
                   }
 
-                  // 6. 메인 웹 앱 실행
                   webView.loadUrl(TARGET_URL)
               }
 
@@ -287,14 +294,11 @@ jobs:
           }
           EOF
 
-      - name: 5. APK 설치 파일 빌드(생성) 실행
-        working-directory: ./android_project
-        run: |
-          gradle wrapper --gradle-version 8.2
-          chmod +x gradlew
-          ./gradlew assembleDebug
+          # (7) Gradle로 APK 설치 파일 빌드 실행
+          cd android_project
+          gradle assembleDebug --no-daemon
 
-      - name: 6. 완성된 '나만의 AI 음성비서.apk' 파일 업로드
+      - name: 5. 완성된 '나만의 AI 음성비서.apk' 파일 업로드
         uses: actions/upload-artifact@v4
         with:
           name: 나만의_AI_음성비서_설치파일
