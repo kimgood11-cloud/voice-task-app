@@ -34,6 +34,383 @@ jobs:
 
       - name: 4. 안드로이드 프로젝트 자동 생성 및 APK 빌드
         run: |
+          SDK_DIR="/usr/local/lib/android/sdk"
+          yes | $SDK_DIR/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
+
+          mkdir -p android_project/app/src/main/java/com/success/myvoiceassistant
+          mkdir -p android_project/app/src/main/res/values
+
+          echo "sdk.dir=$SDK_DIR" > android_project/local.properties
+
+          cat << 'EOF' > android_project/settings.gradle
+          pluginManagement {
+              repositories {
+                  google()
+                  mavenCentral()
+                  gradlePluginPortal()
+              }
+          }
+          dependencyResolutionManagement {
+              repositoriesMode.set(RepositoriesMode.FAIL_ON_PROJECT_REPOS)
+              repositories {
+                  google()
+                  mavenCentral()
+              }
+          }
+          rootProject.name = "MyAIVoiceAssistant"
+          include ':app'
+          EOF
+
+          cat << 'EOF' > android_project/build.gradle
+          plugins {
+              id 'com.android.application' version '8.2.2' apply false
+              id 'org.jetbrains.kotlin.android' version '1.9.22' apply false
+          }
+          EOF
+
+          cat << 'EOF' > android_project/gradle.properties
+          org.gradle.jvmargs=-Xmx2048m -Dfile.encoding=UTF-8
+          android.useAndroidX=true
+          kotlin.code.style=official
+          android.nonTransitiveRClass=true
+          EOF
+
+          cat << EOF > android_project/app/build.gradle
+          plugins {
+              id 'com.android.application'
+              id 'org.jetbrains.kotlin.android'
+          }
+          android {
+              namespace '${PACKAGE_ID}'
+              compileSdk 34
+
+              defaultConfig {
+                  applicationId "${PACKAGE_ID}"
+                  minSdk 24
+                  targetSdk 34
+                  versionCode 2
+                  versionName "2.0"
+              }
+              buildTypes {
+                  release {
+                      minifyEnabled false
+                  }
+              }
+              compileOptions {
+                  sourceCompatibility JavaVersion.VERSION_17
+                  targetCompatibility JavaVersion.VERSION_17
+              }
+              kotlinOptions {
+                  jvmTarget = '17'
+              }
+          }
+          dependencies {
+              implementation 'androidx.core:core-ktx:1.12.0'
+              implementation 'androidx.appcompat:appcompat:1.6.1'
+              implementation 'androidx.webkit:webkit:1.9.0'
+          }
+          EOF
+
+          cat << EOF > android_project/app/src/main/AndroidManifest.xml
+          <?xml version="1.0" encoding="utf-8"?>
+          <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+              <uses-permission android:name="android.permission.INTERNET" />
+              <uses-permission android:name="android.permission.RECORD_AUDIO" />
+              <uses-permission android:name="android.permission.MODIFY_AUDIO_SETTINGS" />
+
+              <application
+                  android:allowBackup="true"
+                  android:label="${APP_NAME}"
+                  android:supportsRtl="true"
+                  android:usesCleartextTraffic="false"
+                  android:theme="@style/Theme.AppCompat.Light.NoActionBar">
+
+                  <activity
+                      android:name=".MainActivity"
+                      android:configChanges="orientation|screenSize|keyboardHidden"
+                      android:exported="true">
+                      <intent-filter>
+                          <action android:name="android.intent.action.MAIN" />
+                          <category android:name="android.intent.category.LAUNCHER" />
+                      </intent-filter>
+                  </activity>
+              </application>
+          </manifest>
+          EOF
+
+          cat << EOF > android_project/app/src/main/java/com/success/myvoiceassistant/MainActivity.kt
+          package ${PACKAGE_ID}
+
+          import android.Manifest
+          import android.app.Activity
+          import android.content.Context
+          import android.content.Intent
+          import android.content.pm.PackageManager
+          import android.net.Uri
+          import android.os.Bundle
+          import android.os.Message
+          import android.view.ViewGroup
+          import android.webkit.*
+          import android.widget.FrameLayout
+          import androidx.appcompat.app.AppCompatActivity
+          import androidx.core.app.ActivityCompat
+          import androidx.core.content.ContextCompat
+
+          class MainActivity : AppCompatActivity() {
+
+              private val BASE_URL = "${TARGET_URL}"
+              private val AUDIO_PERMISSION_CODE = 1001
+              private val FILE_CHOOSER_CODE = 1002
+              
+              private lateinit var rootContainer: FrameLayout
+              private lateinit var webView: WebView
+              private var popupWebView: WebView? = null
+              private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+
+              override fun onCreate(savedInstanceState: Bundle?) {
+                  super.onCreate(savedInstanceState)
+
+                  // 1. 마이크 권한 즉시 요청
+                  if (ContextCompat.checkSelfPermission(this, Manifest.permission.RECORD_AUDIO)
+                      != PackageManager.PERMISSION_GRANTED) {
+                      ActivityCompat.requestPermissions(
+                          this,
+                          arrayOf(Manifest.permission.RECORD_AUDIO, Manifest.permission.MODIFY_AUDIO_SETTINGS),
+                          AUDIO_PERMISSION_CODE
+                      )
+                  }
+
+                  // 2. 메인 화면 및 앱 내부 로그인 팝업을 담을 레이아웃 생성
+                  rootContainer = FrameLayout(this)
+                  webView = WebView(this)
+                  rootContainer.addView(webView, FrameLayout.LayoutParams(
+                      ViewGroup.LayoutParams.MATCH_PARENT,
+                      ViewGroup.LayoutParams.MATCH_PARENT
+                  ))
+                  setContentView(rootContainer)
+
+                  // 3. 쿠키 및 웹뷰 설정 (마이크 iframe 및 자동 로그인 100% 허용)
+                  val cookieManager = CookieManager.getInstance()
+                  cookieManager.setAcceptCookie(true)
+                  cookieManager.setAcceptThirdPartyCookies(webView, true)
+
+                  setupWebViewSettings(webView)
+
+                  // 4. 페이지 이동 제어 및 어플 자체 메모리(SharedPreferences)에 로그인 토큰 영구 백업!
+                  val prefs = getSharedPreferences("VoiceAppPrefs", Context.MODE_PRIVATE)
+
+                  webView.webViewClient = object : WebViewClient() {
+                      override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
+                          val url = request?.url.toString()
+                          // Google AI Studio는 외부 크롬 새 창으로 시원하게 열어줌 (키 복사 편리)
+                          if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
+                              startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                              return true
+                          }
+                          // 구글 로그인(accounts.google.com)은 어플 내부에서 그대로 진행하여 로그인 쿠키가 100% 유지되게 함!
+                          return false
+                      }
+
+                      override fun onPageFinished(view: WebView?, url: String?) {
+                          super.onPageFinished(view, url)
+                          CookieManager.getInstance().flush()
+                          
+                          // URL에 rt(로그인 토큰)나 ak(API 키)가 포함되어 있으면 어플 자체 메모리에 영구 저장!
+                          if (url != null && url.contains("streamlit.app")) {
+                              if (url.contains("rt=") || url.contains("ak=")) {
+                                  prefs.edit().putString("saved_full_url", url).apply()
+                              } else if (!url.contains("code=") && !url.contains("state=")) {
+                                  // 만약 로그아웃 버튼을 눌러 파라미터가 깨끗해진 경우 저장된 주소 초기화
+                                  val cookies = CookieManager.getInstance().getCookie(url) ?: ""
+                                  if (!cookies.contains("voice_rt")) {
+                                      prefs.edit().remove("saved_full_url").apply()
+                                  }
+                              }
+                          }
+                      }
+                  }
+
+                  // 5. 마이크 권한 무조건 승인 및 새 창(로그인/AI 스튜디오) 완벽 처리
+                  webView.webChromeClient = object : WebChromeClient() {
+                      override fun onPermissionRequest(request: PermissionRequest?) {
+                          request?.let {
+                              runOnUiThread {
+                                  it.grant(it.resources)
+                              }
+                          }
+                      }
+
+                      override fun onShowFileChooser(
+                          webView: WebView?,
+                          filePathCallback: ValueCallback<Array<Uri>>?,
+                          fileChooserParams: FileChooserParams?
+                      ): Boolean {
+                          fileUploadCallback?.onReceiveValue(null)
+                          fileUploadCallback = filePathCallback
+
+                          val intent = Intent(Intent.ACTION_GET_CONTENT)
+                          intent.addCategory(Intent.CATEGORY_OPENABLE)
+                          intent.type = "audio/*"
+                          startActivityForResult(Intent.createChooser(intent, "음성 파일 선택"), FILE_CHOOSER_CODE)
+                          return true
+                      }
+
+                      // [핵심 해결] 새 창(target="_blank") 클릭 시 링크가 안 열리던 현상 100% 해결!
+                      override fun onCreateWindow(
+                          view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?
+                      ): Boolean {
+                          val newWebView = WebView(this@MainActivity)
+                          setupWebViewSettings(newWebView)
+                          CookieManager.getInstance().setAcceptThirdPartyCookies(newWebView, true)
+
+                          popupWebView = newWebView
+                          rootContainer.addView(newWebView, FrameLayout.LayoutParams(
+                              ViewGroup.LayoutParams.MATCH_PARENT,
+                              ViewGroup.LayoutParams.MATCH_PARENT
+                          ))
+
+                          newWebView.webViewClient = object : WebViewClient() {
+                              override fun shouldOverrideUrlLoading(v: WebView?, req: WebResourceRequest?): Boolean {
+                                  val targetUrl = req?.url.toString()
+                                  // AI Studio나 구글 드라이브 링크면 팝업을 닫고 즉시 외부 크롬으로 열기!
+                                  if (targetUrl.contains("aistudio.google.com") || targetUrl.contains("drive.google.com")) {
+                                      closePopup()
+                                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(targetUrl)))
+                                      return true
+                                  }
+                                  // 구글 로그인이 끝나고 다시 우리 앱(streamlit.app)으로 돌아오면 메인 화면으로 전달하고 팝업 닫기!
+                                  if (targetUrl.contains("streamlit.app")) {
+                                      closePopup()
+                                      webView.loadUrl(targetUrl)
+                                      return true
+                                  }
+                                  return false
+                              }
+
+                              override fun onPageFinished(v: WebView?, url: String?) {
+                                  super.onPageFinished(v, url)
+                                  CookieManager.getInstance().flush()
+                              }
+                          }
+
+                          newWebView.webChromeClient = object : WebChromeClient() {
+                              override fun onCloseWindow(window: WebView?) {
+                                  closePopup()
+                              }
+                          }
+
+                          val transport = resultMsg?.obj as? WebView.WebViewTransport
+                          transport?.webView = newWebView
+                          resultMsg?.sendToTarget()
+                          return true
+                      }
+                  }
+
+                  // 6. 어플 실행 시 이전에 저장된 로그인/API키 주소가 있으면 그 주소로 즉시 복구하여 로그인 유지!
+                  val lastSavedUrl = prefs.getString("saved_full_url", null)
+                  if (!lastSavedUrl.isNullOrEmpty()) {
+                      webView.loadUrl(lastSavedUrl)
+                  } else {
+                      webView.loadUrl(BASE_URL)
+                  }
+              }
+
+              private fun setupWebViewSettings(wv: WebView) {
+                  val s = wv.settings
+                  s.javaScriptEnabled = true
+                  s.domStorageEnabled = true
+                  s.databaseEnabled = true
+                  s.javaScriptCanOpenWindowsAutomatically = true
+                  s.setSupportMultipleWindows(true)
+                  s.mediaPlaybackRequiresUserGesture = false
+                  s.allowFileAccess = true
+                  s.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+                  s.cacheMode = WebSettings.LOAD_DEFAULT
+                  // 구글 403 차단 우회용 크롬 표준 User-Agent 설정
+                  s.userAgentString = "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
+              }
+
+              private fun closePopup() {
+                  popupWebView?.let {
+                      rootContainer.removeView(it)
+                      it.destroy()
+                  }
+                  popupWebView = null
+              }
+
+              override fun onActivityResult(requestCode: Int, resultCode: Int, data: Intent?) {
+                  super.onActivityResult(requestCode, resultCode, data)
+                  if (requestCode == FILE_CHOOSER_CODE) {
+                      if (fileUploadCallback == null) return
+                      val results: Array<Uri>? = if (resultCode == Activity.RESULT_OK && data?.data != null) {
+                          arrayOf(data.data!!)
+                      } else null
+                      fileUploadCallback?.onReceiveValue(results)
+                      fileUploadCallback = null
+                  }
+              }
+
+              override fun onBackPressed() {
+                  if (popupWebView != null) {
+                      if (popupWebView!!.canGoBack()) {
+                          popupWebView!!.goBack()
+                      } else {
+                          closePopup()
+                      }
+                  } else if (webView.canGoBack()) {
+                      webView.goBack()
+                  } else {
+                      super.onBackPressed()
+                  }
+              }
+          }
+          EOF
+
+          cd android_project
+          gradle assembleDebug --no-daemon
+
+      - name: 5. 완성된 '나만의 AI 음성비서.apk' 파일 업로드
+        uses: actions/upload-artifact@v4
+        with:
+          name: 나만의_AI_음성비서_설치파일
+          path: android_project/app/build/outputs/apk/debug/app-debug.apk
+: Build My AI Voice Assistant APK
+
+on:
+  push:
+    branches: [ "main", "master" ]
+  workflow_dispatch:
+
+# =====================================================================
+# [사용자 수정 가능 변수 구역] 어플 이름 및 연결할 웹 앱 주소
+# =====================================================================
+env:
+  APP_NAME: "나만의 AI 음성비서"
+  TARGET_URL: "https://public-voice-task.streamlit.app/"
+  PACKAGE_ID: "com.success.myvoiceassistant"
+
+jobs:
+  build-android-apk:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 1. 깃허브 저장소 연결
+        uses: actions/checkout@v4
+
+      - name: 2. 자바(JDK 17) 및 Gradle 빌드 도구 설치
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: 3. 공식 Gradle 버전(8.4) 설정
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: '8.4'
+
+      - name: 4. 안드로이드 프로젝트 자동 생성 및 APK 빌드
+        run: |
           # 깃허브 서버에 이미 내장된 공식 안드로이드 SDK 경로 확인 및 라이선스 자동 승인
           SDK_DIR="/usr/local/lib/android/sdk"
           yes | $SDK_DIR/cmdline-tools/latest/bin/sdkmanager --licenses > /dev/null 2>&1 || true
