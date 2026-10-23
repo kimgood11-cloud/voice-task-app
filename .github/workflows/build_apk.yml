@@ -85,8 +85,8 @@ jobs:
                   applicationId "${PACKAGE_ID}"
                   minSdk 24
                   targetSdk 34
-                  versionCode 6
-                  versionName "6.0"
+                  versionCode 7
+                  versionName "7.0"
               }
               buildTypes {
                   release {
@@ -183,7 +183,6 @@ jobs:
                   s.javaScriptEnabled = true
                   s.domStorageEnabled = true
                   s.databaseEnabled = true
-                  // [핵심 해결 5] 다중 창 옵션을 false로 꺼서 팝업 차단을 원천 제거하고 모든 링크가 100% 즉시 이동되게 함!
                   s.setSupportMultipleWindows(false)
                   s.javaScriptCanOpenWindowsAutomatically = true
                   s.mediaPlaybackRequiresUserGesture = false
@@ -194,17 +193,16 @@ jobs:
 
                   val prefs = getSharedPreferences("VoiceAppPrefs", Context.MODE_PRIVATE)
 
+                  // [핵심 해결] 구글 로그인(accounts.google.com) 및 AI Studio, 구글 드라이브 링크는 스마트폰 기본 크롬 브라우저로 100% 연동하여 막힘없이 열기!
                   webView.webViewClient = object : WebViewClient() {
                       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                           val url = request?.url.toString()
                           if (!url.startsWith("http://") && !url.startsWith("https://")) return true
                           
-                          // Google AI Studio 및 구글 드라이브는 스마트폰 외부 크롬 브라우저로 즉시 열기!
-                          if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
+                          if (url.contains("accounts.google.com") || url.contains("aistudio.google.com") || url.contains("drive.google.com") || url.contains("ServiceLogin")) {
                               startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
                               return true
                           }
-                          // 구글 로그인 및 앱 내부 이동은 웹뷰에서 그대로 진행!
                           return false
                       }
 
