@@ -3,3 +3,4 @@ google-genai
 gspread
 google-auth-oauthlib
 audio-recorder-streamlit
+extra-streamlit-components
