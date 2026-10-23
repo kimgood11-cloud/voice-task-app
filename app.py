@@ -297,7 +297,7 @@ except Exception:
 
 # --- [스마트폰 영구 저장소(CookieManager) 및 서버 캐시 초기화] ---
 cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
-all_cookies = cookie_manager.get_all() or {}
+all_cookies = cookie_manager.get_all()
 
 @st.cache_resource
 def get_flow_store():
@@ -311,15 +311,83 @@ if 'credentials' in st.session_state:
     if 'https://www.googleapis.com/auth/calendar.events' not in saved_scopes:
         del st.session_state['credentials']
 
-# --- [핵심 해결책] 앱을 닫았다 열어도 브라우저 쿠키 및 URL에서 로그인/API 키 100% 자동 복구 ---
-# 1. 구글 로그인 토큰(rt) 복구 (쿠키 우선 확인 -> URL 파라미터 확인)
+# --- [핵심 해결책 1] OAuth 로그인 직후 들어온 코드(code)를 최우선으로 처리하여 쿠키에 영구 각인 ---
+if 'credentials' not in st.session_state and "code" in st.query_params and "state" in st.query_params:
+    auth_code = st.query_params["code"]
+    state_key = st.query_params["state"]
+    try:
+        if state_key in flow_store:
+            flow = flow_store.pop(state_key)
+            flow.fetch_token(code=auth_code)
+            creds = flow.credentials
+            st.session_state['credentials'] = creds
+            st.session_state["logged_out_flag"] = False
+            
+            # 기존에 저장된 토큰이 있고 새로 발급된 토큰이 없다면 기존 토큰 보존
+            existing_cookies = all_cookies or {}
+            prev_rt_encoded = existing_cookies.get("voice_rt", "") or st.query_params.get("rt", "")
+            
+            final_rt = creds.refresh_token
+            if not final_rt and prev_rt_encoded:
+                try:
+                    final_rt = base64.b64decode(prev_rt_encoded.encode()).decode()
+                except Exception:
+                    final_rt = prev_rt_encoded
+
+            existing_ak = st.query_params.get("ak", "") or existing_cookies.get("voice_ak", "")
+            st.query_params.clear()
+            
+            # 발급된 refresh_token을 Base64로 인코딩하여 브라우저 쿠키(365일)와 URL에 동시 저장!
+            # 주의: 여기서 즉시 st.rerun()을 부르면 쿠키 저장이 취소되므로 자연스럽게 아래로 흘려보냅니다.
+            if final_rt:
+                encoded_rt = base64.b64encode(final_rt.encode()).decode()
+                st.session_state["saved_rt_encoded"] = encoded_rt
+                st.query_params["rt"] = encoded_rt
+                cookie_manager.set(
+                    "voice_rt", 
+                    encoded_rt, 
+                    expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS),
+                    key="set_rt_cookie_init"
+                )
+            if existing_ak:
+                st.query_params["ak"] = existing_ak
+        else:
+            st.warning("로그인 대기 시간이 지났습니다. 아래 버튼을 눌러 다시 로그인해 주세요.")
+            st.query_params.clear()
+            if st.button("🔄 다시 로그인 화면으로 이동"):
+                st.rerun()
+            st.stop()
+    except Exception as e:
+        st.error(f"인증 처리 중 오류가 발생했습니다: {e}")
+        if st.button("🔄 다시 로그인 시도"):
+            st.query_params.clear()
+            st.rerun()
+        st.stop()
+
+# --- [핵심 해결책 2] 앱을 닫았다 열었을 때 쿠키 컴포넌트가 준비될 때까지 0.5초 대기 후 100% 복구 ---
 if 'credentials' not in st.session_state and not st.session_state.get("logged_out_flag"):
-    saved_rt = all_cookies.get("voice_rt") or st.query_params.get("rt", "")
-    if saved_rt:
+    existing_cookies = all_cookies or {}
+    raw_rt_cookie = existing_cookies.get("voice_rt", "")
+    raw_rt_param = st.query_params.get("rt", "")
+    encoded_rt = raw_rt_cookie or raw_rt_param or st.session_state.get("saved_rt_encoded", "")
+
+    # 앱을 방금 켜서 쿠키가 아직 도착하지 않은 첫 순간(0.5초)에는 성급히 로그인 창을 띄우지 않고 기다림!
+    if not encoded_rt and not st.session_state.get("cookie_sync_checked"):
+        st.session_state["cookie_sync_checked"] = True
+        st.info("🔄 스마트폰에 저장된 자동 로그인 정보를 불러오는 중입니다...")
+        time.sleep(0.6)
+        st.rerun()
+
+    if encoded_rt:
         try:
+            try:
+                decoded_rt = base64.b64decode(encoded_rt.encode()).decode()
+            except Exception:
+                decoded_rt = encoded_rt
+
             auto_creds = Credentials(
                 token=None,
-                refresh_token=saved_rt,
+                refresh_token=decoded_rt,
                 token_uri=oauth_secrets["token_uri"],
                 client_id=oauth_secrets["client_id"],
                 client_secret=oauth_secrets["client_secret"],
@@ -327,19 +395,20 @@ if 'credentials' not in st.session_state and not st.session_state.get("logged_ou
             )
             auto_creds.refresh(Request())
             st.session_state['credentials'] = auto_creds
-            # URL에도 동기화하여 바탕화면 바로가기 안정성 극대화
+            st.session_state["saved_rt_encoded"] = encoded_rt
             if "rt" not in st.query_params:
-                st.query_params["rt"] = saved_rt
+                st.query_params["rt"] = encoded_rt
         except Exception:
             if "rt" in st.query_params:
                 del st.query_params["rt"]
 
-# 2. Gemini API 키(ak) 영구 복구 (쿠키 우선 확인 -> URL 파라미터 확인)
+# --- [API 키(ak) 영구 복구 (쿠키 우선 확인 -> URL 파라미터 확인)] ---
 if "saved_api_key" not in st.session_state:
     st.session_state["saved_api_key"] = ""
 
 if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
-    encoded_ak = all_cookies.get("voice_ak") or st.query_params.get("ak", "")
+    existing_cookies = all_cookies or {}
+    encoded_ak = existing_cookies.get("voice_ak", "") or st.query_params.get("ak", "")
     if encoded_ak:
         try:
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
@@ -349,89 +418,58 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
-# --- [2단계] 다중 사용자 개별 로그인 처리 및 영구 쿠키 각인 ---
+# --- [2단계] 쿠키와 URL 어디에도 로그인 정보가 없을 때만 로그인 화면 표시 ---
 if 'credentials' not in st.session_state:
-    if "code" in st.query_params and "state" in st.query_params:
-        auth_code = st.query_params["code"]
-        state_key = st.query_params["state"]
-        try:
-            if state_key in flow_store:
-                flow = flow_store.pop(state_key)
-                flow.fetch_token(code=auth_code)
-                creds = flow.credentials
-                st.session_state['credentials'] = creds
-                st.session_state["logged_out_flag"] = False
-                
-                existing_ak = st.query_params.get("ak", "") or all_cookies.get("voice_ak", "")
-                st.query_params.clear()
-                
-                # 발급된 refresh_token을 브라우저 쿠키(365일)와 URL에 동시에 영구 저장!
-                if creds.refresh_token:
-                    st.query_params["rt"] = creds.refresh_token
-                    cookie_manager.set(
-                        "voice_rt", 
-                        creds.refresh_token, 
-                        expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS),
-                        key="set_rt_cookie"
-                    )
-                if existing_ak:
-                    st.query_params["ak"] = existing_ak
-                    
-                time.sleep(0.4)  # 브라우저가 쿠키를 안전하게 기록할 시간 부여
-                st.rerun()
-            else:
-                st.warning("로그인 대기 시간이 지났습니다. 아래 버튼을 눌러 다시 로그인해 주세요.")
-                st.query_params.clear()
-                if st.button("🔄 다시 로그인 화면으로 이동"):
-                    st.rerun()
-                st.stop()
-        except Exception as e:
-            st.error(f"인증 처리 중 오류가 발생했습니다: {e}")
-            if st.button("🔄 다시 로그인 시도"):
-                st.query_params.clear()
-                st.rerun()
-            st.stop()
-    else:
-        if len(flow_store) > 100:
-            flow_store.clear()
-            
-        flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
-        # prompt='consent'를 통해 매 로그인 시마다 영구 토큰(refresh_token)이 100% 발급되도록 강제
-        auth_url, state_key = flow.authorization_url(
-            prompt='consent',
-            access_type='offline',
-            include_granted_scopes='true'
-        )
-        flow_store[state_key] = flow
+    if len(flow_store) > 100:
+        flow_store.clear()
         
-        st.markdown(
-            f"""
-            <div class="login-card">
-                <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
-                <h3 style="margin: 0 0 12px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
-                <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.7;">
-                    서비스를 시작하려면 본인의 구글 계정으로 로그인해 주세요.<br>
-                    한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
-                    모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
-                </p>
-                <a href="{auth_url}" target="_blank" rel="noopener noreferrer" style="
-                    display: inline-block;
-                    background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-                    color: white;
-                    padding: 14px 24px;
-                    text-decoration: none;
-                    border-radius: 12px;
-                    font-size: 15px;
-                    font-weight: 700;
-                    box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
-                    ">
-                    🚀 내 Google 계정으로 시작하기 (새 창)
-                </a>
-            </div>
-            """,
-            unsafe_allow_html=True
+    flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
+    auth_url, state_key = flow.authorization_url(
+        prompt='consent',
+        access_type='offline',
+        include_granted_scopes='true'
+    )
+    flow_store[state_key] = flow
+    
+    st.markdown(
+        f"""
+        <div class="login-card">
+            <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
+            <h3 style="margin: 0 0 12px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
+            <p style="color: #64748b; font-size: 14px; margin-bottom: 24px; line-height: 1.7;">
+                서비스를 시작하려면 본인의 구글 계정으로 로그인해 주세요.<br>
+                한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
+                모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
+            </p>
+            <a href="{auth_url}" target="_blank" rel="noopener noreferrer" style="
+                display: inline-block;
+                background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+                color: white;
+                padding: 14px 24px;
+                text-decoration: none;
+                border-radius: 12px;
+                font-size: 15px;
+                font-weight: 700;
+                box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+                ">
+                🚀 내 Google 계정으로 시작하기 (새 창)
+            </a>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    st.stop()
+
+# --- [로그인 상태 유지 보강] 메인 화면 진입 시 쿠키가 비어있다면 다시 한번 구워주기 ---
+if 'credentials' in st.session_state and st.session_state.get("saved_rt_encoded"):
+    existing_cookies = all_cookies or {}
+    if not existing_cookies.get("voice_rt"):
+        cookie_manager.set(
+            "voice_rt",
+            st.session_state["saved_rt_encoded"],
+            expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS),
+            key="reinforce_rt_cookie"
         )
-        st.stop()
 
 # --- [3단계] 대한민국 표준시(KST) 기준 일일 무료 사용량 추적기 초기화 ---
 now_kst = datetime.now(KST)
@@ -447,7 +485,7 @@ if "last_processed_hash" not in st.session_state:
 
 # --- [4단계] API 키 영구 저장 함수, 팝업창(Dialog) 및 구글 연동 보조 함수들 ---
 def save_api_key_permanently(raw_key):
-    """입력된 API 키를 브라우저 쿠키(365일), 세션, URL에 동시에 저장하여 앱을 닫아도 절대 풀리지 않게 합니다."""
+    """입력된 API 키를 브라우저 쿠키(365일), 세션, URL에 동시에 저장합니다."""
     clean_key = raw_key.strip()
     encoded_val = base64.b64encode(clean_key.encode()).decode()
     st.session_state["saved_api_key"] = clean_key
@@ -459,7 +497,6 @@ def save_api_key_permanently(raw_key):
         expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS),
         key="set_ak_cookie"
     )
-    time.sleep(0.4)
 
 @st.dialog("🔑 무료 Gemini API 키 1분 발급 절차 안내", width="large")
 def show_api_guide_modal():
@@ -510,7 +547,6 @@ def show_api_guide_modal():
     if st.button("✅ API 키 영구 저장 및 시작하기", type="primary", use_container_width=True):
         if modal_key.strip():
             save_api_key_permanently(modal_key)
-            st.rerun()
         else:
             st.warning("⚠️ 먼저 복사한 API 키를 입력칸에 붙여넣어 주세요.")
 
@@ -618,13 +654,12 @@ if st.session_state["saved_api_key"]:
                 cookie_manager.delete("voice_ak", key="del_ak_cookie")
             except Exception:
                 pass
-            time.sleep(0.3)
-            st.rerun()
     with col_logout:
         if st.button("🚪 로그아웃", use_container_width=True):
             if 'credentials' in st.session_state:
                 del st.session_state['credentials']
             st.session_state["saved_api_key"] = ""
+            st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.session_state["key_cleared_flag"] = True
             st.query_params.clear()
@@ -633,8 +668,6 @@ if st.session_state["saved_api_key"]:
                 cookie_manager.delete("voice_ak", key="del_ak_cookie_logout")
             except Exception:
                 pass
-            time.sleep(0.3)
-            st.rerun()
 else:
     col_status, col_logout = st.columns([4, 1.2])
     with col_status:
@@ -643,14 +676,13 @@ else:
         if st.button("🚪 로그아웃", use_container_width=True):
             if 'credentials' in st.session_state:
                 del st.session_state['credentials']
+            st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.query_params.clear()
             try:
                 cookie_manager.delete("voice_rt", key="del_rt_only")
             except Exception:
                 pass
-            time.sleep(0.3)
-            st.rerun()
 
 with st.expander("📲 휴대폰 바탕화면(홈 화면)에 추가하여 편리하게 쓰는 법"):
     st.markdown(
@@ -732,7 +764,6 @@ if not st.session_state["saved_api_key"]:
     if key_input.strip() or save_key_clicked:
         if key_input.strip():
             save_api_key_permanently(key_input)
-            st.rerun()
 
 user_api_key = st.session_state["saved_api_key"]
 
