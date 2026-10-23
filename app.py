@@ -7,7 +7,6 @@ import hashlib
 import base64
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
-from audio_recorder_streamlit import audio_recorder
 import gspread
 from google_auth_oauthlib.flow import Flow
 from google.oauth2.credentials import Credentials
@@ -27,7 +26,7 @@ REDIRECT_URI = 'https://public-voice-task.streamlit.app/'
 SHEET_NAME = 'Voice_Log_DB'
 GEMINI_MODEL = 'gemini-2.5-flash'
 
-# 스마트폰 앱을 닫아도 로그인과 API 키가 유지되는 기간 (기본 365일)
+# 스마트폰 앱을 닫아도 로그인과 API 키가 유지되는 기간 (365일)
 COOKIE_EXPIRY_DAYS = 365
 
 # 무료 조건 한도 설정 (1회 최대 120분, 하루 누적 600분 / 500회)
@@ -35,24 +34,19 @@ MAX_SINGLE_FREE_MINUTES = 120
 DAILY_FREE_LIMIT_MINUTES = 600
 DAILY_FREE_LIMIT_REQUESTS = 500
 TOKENS_PER_SECOND = 32
-
-# 인라인 전송 기준 용량 (18MB 이하 시 직접 전송, 초과 시 Files API 자동 전환)
 INLINE_LIMIT_MB = 18
 
-# 구글 스프레드시트 첫 행(헤더) 컬럼 구성 (8개 열)
 SHEET_HEADERS = [
     "등록일시", "카테고리", "담당자", "요약(큰타이틀)", 
     "상세내용(주제별정리/전체녹음)", "약속일시", "캘린더등록", "음성링크"
 ]
 
-# 구글 캘린더 기본 일정 길이(시간) 및 대한민국 표준 시간대(KST) 고정
 DEFAULT_EVENT_HOURS = 1
 TIMEZONE = 'Asia/Seoul'
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
 # [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수
-# 나중에 분류 기준이나 회의록 양식을 바꾸고 싶을 때 이 함수 내부만 수정하세요!
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -109,7 +103,6 @@ premium_css = f"""
         font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
     }}
 
-    /* 1. 상단 우측 GitHub/Fork 및 하단 Streamlit 링크 숨김 처리 */
     #MainMenu {{visibility: hidden !important; display: none !important;}}
     header {{visibility: hidden !important; display: none !important;}}
     footer {{visibility: hidden !important; display: none !important;}}
@@ -120,14 +113,12 @@ premium_css = f"""
     .viewerBadge_container__1QSob {{display: none !important;}}
     .styles_viewerBadge__1yB5_ {{display: none !important;}}
 
-    /* 2. 전체 레이아웃 여백 최적화 */
     .block-container {{
         padding-top: 1.2rem !important;
         padding-bottom: 2.5rem !important;
         max-width: 880px !important;
     }}
 
-    /* 3. 상단 프리미엄 히어로 배너 (모바일 한 줄 표시 최적화) */
     .premium-header {{
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
         color: #ffffff;
@@ -167,7 +158,6 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* 4. 대시보드 및 안내 카드 스타일 */
     .usage-card {{
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -207,7 +197,6 @@ premium_css = f"""
         color: #3b82f6;
     }}
 
-    /* 5. 마이크 녹음 상태 안내 카드 */
     .mic-guide-card {{
         background: linear-gradient(to right, #fff5f5, #ffffff);
         border: 1px solid #fecaca;
@@ -220,7 +209,6 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* 6. 로그인 전 웰컴 카드 */
     .login-card {{
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -232,7 +220,6 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* 7. 팝업 내부 단계별 박스 스타일 */
     .step-guide-box {{
         background: #f8fafc;
         border: 1px solid #e2e8f0;
@@ -246,7 +233,6 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* 8. 버튼 및 탭 세련되게 다듬기 */
     .stButton > button {{
         border-radius: 10px !important;
         font-weight: 700 !important;
@@ -305,13 +291,12 @@ def get_flow_store():
 
 flow_store = get_flow_store()
 
-# 권한 스코프 누락 시 재로그인 유도
 if 'credentials' in st.session_state:
     saved_scopes = st.session_state['credentials'].scopes or []
     if 'https://www.googleapis.com/auth/calendar.events' not in saved_scopes:
         del st.session_state['credentials']
 
-# --- [핵심 해결책 1] OAuth 로그인 직후 들어온 코드(code)를 최우선으로 처리하여 쿠키에 영구 각인 ---
+# --- [핵심 1] 구글 로그인 직후 돌아왔을 때 토큰을 쿠키와 URL에 동시 영구 저장 ---
 if 'credentials' not in st.session_state and "code" in st.query_params and "state" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params["state"]
@@ -323,7 +308,6 @@ if 'credentials' not in st.session_state and "code" in st.query_params and "stat
             st.session_state['credentials'] = creds
             st.session_state["logged_out_flag"] = False
             
-            # 기존에 저장된 토큰이 있고 새로 발급된 토큰이 없다면 기존 토큰 보존
             existing_cookies = all_cookies or {}
             prev_rt_encoded = existing_cookies.get("voice_rt", "") or st.query_params.get("rt", "")
             
@@ -337,8 +321,6 @@ if 'credentials' not in st.session_state and "code" in st.query_params and "stat
             existing_ak = st.query_params.get("ak", "") or existing_cookies.get("voice_ak", "")
             st.query_params.clear()
             
-            # 발급된 refresh_token을 Base64로 인코딩하여 브라우저 쿠키(365일)와 URL에 동시 저장!
-            # 주의: 여기서 즉시 st.rerun()을 부르면 쿠키 저장이 취소되므로 자연스럽게 아래로 흘려보냅니다.
             if final_rt:
                 encoded_rt = base64.b64encode(final_rt.encode()).decode()
                 st.session_state["saved_rt_encoded"] = encoded_rt
@@ -352,30 +334,23 @@ if 'credentials' not in st.session_state and "code" in st.query_params and "stat
             if existing_ak:
                 st.query_params["ak"] = existing_ak
         else:
-            st.warning("로그인 대기 시간이 지났습니다. 아래 버튼을 눌러 다시 로그인해 주세요.")
-            st.query_params.clear()
-            if st.button("🔄 다시 로그인 화면으로 이동"):
-                st.rerun()
-            st.stop()
-    except Exception as e:
-        st.error(f"인증 처리 중 오류가 발생했습니다: {e}")
-        if st.button("🔄 다시 로그인 시도"):
             st.query_params.clear()
             st.rerun()
+    except Exception as e:
+        st.error(f"인증 처리 중 오류가 발생했습니다: {e}")
+        st.query_params.clear()
         st.stop()
 
-# --- [핵심 해결책 2] 앱을 닫았다 열었을 때 쿠키 컴포넌트가 준비될 때까지 0.5초 대기 후 100% 복구 ---
+# --- [핵심 2] 앱 재실행 시 쿠키 및 URL 파라미터에서 로그인 정보 100% 복구 ---
 if 'credentials' not in st.session_state and not st.session_state.get("logged_out_flag"):
     existing_cookies = all_cookies or {}
     raw_rt_cookie = existing_cookies.get("voice_rt", "")
     raw_rt_param = st.query_params.get("rt", "")
     encoded_rt = raw_rt_cookie or raw_rt_param or st.session_state.get("saved_rt_encoded", "")
 
-    # 앱을 방금 켜서 쿠키가 아직 도착하지 않은 첫 순간(0.5초)에는 성급히 로그인 창을 띄우지 않고 기다림!
     if not encoded_rt and not st.session_state.get("cookie_sync_checked"):
         st.session_state["cookie_sync_checked"] = True
-        st.info("🔄 스마트폰에 저장된 자동 로그인 정보를 불러오는 중입니다...")
-        time.sleep(0.6)
+        time.sleep(0.5)
         st.rerun()
 
     if encoded_rt:
@@ -402,7 +377,7 @@ if 'credentials' not in st.session_state and not st.session_state.get("logged_ou
             if "rt" in st.query_params:
                 del st.query_params["rt"]
 
-# --- [API 키(ak) 영구 복구 (쿠키 우선 확인 -> URL 파라미터 확인)] ---
+# --- [핵심 3] API 키(ak) 영구 복구 ---
 if "saved_api_key" not in st.session_state:
     st.session_state["saved_api_key"] = ""
 
@@ -418,7 +393,7 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
-# --- [2단계] 쿠키와 URL 어디에도 로그인 정보가 없을 때만 로그인 화면 표시 ---
+# --- [2단계] 로그인 전 화면 (어플 내부에서 바로 열리도록 target="_top" 적용) ---
 if 'credentials' not in st.session_state:
     if len(flow_store) > 100:
         flow_store.clear()
@@ -452,7 +427,7 @@ if 'credentials' not in st.session_state:
                 font-weight: 700;
                 box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
                 ">
-                🚀 내 Google 계정으로 시작하기 (새 창)
+                🚀 내 Google 계정으로 시작하기
             </a>
         </div>
         """,
@@ -460,7 +435,6 @@ if 'credentials' not in st.session_state:
     )
     st.stop()
 
-# --- [로그인 상태 유지 보강] 메인 화면 진입 시 쿠키가 비어있다면 다시 한번 구워주기 ---
 if 'credentials' in st.session_state and st.session_state.get("saved_rt_encoded"):
     existing_cookies = all_cookies or {}
     if not existing_cookies.get("voice_rt"):
@@ -485,7 +459,6 @@ if "last_processed_hash" not in st.session_state:
 
 # --- [4단계] API 키 영구 저장 함수, 팝업창(Dialog) 및 구글 연동 보조 함수들 ---
 def save_api_key_permanently(raw_key):
-    """입력된 API 키를 브라우저 쿠키(365일), 세션, URL에 동시에 저장합니다."""
     clean_key = raw_key.strip()
     encoded_val = base64.b64encode(clean_key.encode()).decode()
     st.session_state["saved_api_key"] = clean_key
@@ -506,22 +479,13 @@ def show_api_guide_modal():
             AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
             <b>(최초 1회만 등록하면 앱을 닫아도 영구 유지됩니다 / 평생 무료)</b>
         </div>
-        <div style="text-align: center; margin-bottom: 18px;">
-            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="
-                display: inline-block;
-                background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
-                color: white;
-                padding: 12px 20px;
-                text-decoration: none;
-                border-radius: 10px;
-                font-size: 14px;
-                font-weight: 700;
-                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.25);
-            ">
-                👉 1. 여기를 눌러 Google AI Studio 열기 (새 창)
-            </a>
-        </div>
-        <div class="step-guide-box">
+        """,
+        unsafe_allow_html=True
+    )
+    st.link_button("👉 1. 여기를 눌러 Google AI Studio 열기 (새 창)", "https://aistudio.google.com/app/apikey", type="primary", use_container_width=True)
+    st.markdown(
+        """
+        <div class="step-guide-box" style="margin-top: 12px;">
             <b>[1단계] 구글 로그인 및 약관 동의</b><br>
             위 파란색 버튼을 눌러 열린 사이트에서 본인의 <b>구글 계정(Gmail)</b>으로 로그인합니다.<br>
             처음 접속 시 약관 동의 창이 뜨면 체크박스에 체크 후 파란색 <b>[Continue(계속)]</b> 버튼을 누릅니다.
@@ -547,6 +511,7 @@ def show_api_guide_modal():
     if st.button("✅ API 키 영구 저장 및 시작하기", type="primary", use_container_width=True):
         if modal_key.strip():
             save_api_key_permanently(modal_key)
+            st.rerun()
         else:
             st.warning("⚠️ 먼저 복사한 API 키를 입력칸에 붙여넣어 주세요.")
 
@@ -654,6 +619,7 @@ if st.session_state["saved_api_key"]:
                 cookie_manager.delete("voice_ak", key="del_ak_cookie")
             except Exception:
                 pass
+            st.rerun()
     with col_logout:
         if st.button("🚪 로그아웃", use_container_width=True):
             if 'credentials' in st.session_state:
@@ -668,6 +634,7 @@ if st.session_state["saved_api_key"]:
                 cookie_manager.delete("voice_ak", key="del_ak_cookie_logout")
             except Exception:
                 pass
+            st.rerun()
 else:
     col_status, col_logout = st.columns([4, 1.2])
     with col_status:
@@ -683,18 +650,7 @@ else:
                 cookie_manager.delete("voice_rt", key="del_rt_only")
             except Exception:
                 pass
-
-with st.expander("📲 휴대폰 바탕화면(홈 화면)에 추가하여 편리하게 쓰는 법"):
-    st.markdown(
-        """
-        <div style="font-size: 14px; color: #334155; line-height: 1.7; word-break: keep-all;">
-            • <b>영구 자동 로그인 및 키 유지 적용됨:</b><br>
-            이제 한 번만 구글 로그인과 API 키 입력을 완료하면 브라우저 내부에 안전하게 기억되어, <b>앱을 완전히 닫았다가 다시 열어도 로그인이나 키 입력 창이 다시 나오지 않습니다!</b><br>
-            • 휴대폰 크롬(또는 사파리) 메뉴에서 <b>[홈 화면에 추가]</b>를 해두시면 일반 앱처럼 1초 만에 바로 마이크 화면을 여실 수 있습니다.
-        </div>
-        """,
-        unsafe_allow_html=True
-    )
+            st.rerun()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 remaining_mins = max(0.0, DAILY_FREE_LIMIT_MINUTES - used_mins)
@@ -728,7 +684,7 @@ st.markdown(
 )
 st.progress(min(1.0, used_mins / DAILY_FREE_LIMIT_MINUTES))
 
-# API 키 미등록 시 안내 카드 + 팝업 버튼 + 저장 버튼 제공
+# API 키 미등록 시 안내 카드 + 공식 st.link_button 적용으로 100% 링크 이동 보장
 if not st.session_state["saved_api_key"]:
     st.markdown(
         """
@@ -748,10 +704,7 @@ if not st.session_state["saved_api_key"]:
         if st.button("📖 처음이신가요? 무료 API 키 발급 절차 보기 (팝업)", type="primary", use_container_width=True):
             show_api_guide_modal()
     with col_direct_link:
-        st.markdown(
-            '<a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display:block; text-align:center; background:#ffffff; border:1px solid #2563eb; color:#2563eb; padding:9px 12px; border-radius:10px; font-weight:700; text-decoration:none; font-size:14px;">🔗 Google AI Studio 바로 열기 (새 창)</a>',
-            unsafe_allow_html=True
-        )
+        st.link_button("🔗 Google AI Studio 바로 열기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
         
     col_input, col_save_btn = st.columns([3.5, 1.2])
     with col_input:
@@ -764,6 +717,7 @@ if not st.session_state["saved_api_key"]:
     if key_input.strip() or save_key_clicked:
         if key_input.strip():
             save_api_key_permanently(key_input)
+            st.rerun()
 
 user_api_key = st.session_state["saved_api_key"]
 
@@ -784,24 +738,29 @@ with tab1:
             <div class="mic-guide-card">
                 <div style="font-size:15px; font-weight:800; color:#991b1b; margin-bottom:6px;">🎙️ 실시간 녹음 상태 확인 안내</div>
                 <div style="font-size:14px; color:#374151; line-height:1.7;">
-                    • 아래 <b>검정색 마이크</b>를 클릭하면 ➡️ 즉시 <b style="color:#ef4444;">🔴 빨간색 마이크 (녹음중)</b> 상태로 변합니다.<br>
-                    • 말씀을 마친 후 <b style="color:#ef4444;">🔴 빨간색 마이크</b>를 다시 클릭하면 ➡️ <b>녹음중이 사라지며 즉시 자동 변환</b>됩니다!
+                    • 아래 녹음 박스 왼쪽의 <b>🎙️ 마이크 아이콘</b>을 누르면 ➡️ 즉시 <b style="color:#ef4444;">🔴 빨간색 파형(녹음중)</b>이 움직입니다.<br>
+                    • 말씀을 마친 후 <b style="color:#ef4444;">⏹️ 정지(완료) 아이콘</b>을 다시 누르면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
                 </div>
             </div>
             """,
             unsafe_allow_html=True
         )
         
-        audio_bytes = audio_recorder(
-            text="👉 마이크 클릭 시 시작 (🔴빨간색 = 녹음중 / 다시 클릭 시 녹음종료 및 자동변환)",
-            recording_color="#ef4444",
-            neutral_color="#1e293b",
-            icon_size="2x"
-        )
-        
-        if audio_bytes:
-            st.success("✅ 녹음이 완료되었습니다! 아래에서 녹음된 음성을 확인하실 수 있습니다.")
-            st.audio(audio_bytes, format="audio/wav")
+        # [핵심 해결] 모바일 웹뷰(APK)에서 절대 사라지지 않는 Streamlit 공식 내장 마이크 위젯 적용!
+        if hasattr(st, "audio_input"):
+            recorded_file = st.audio_input("👉 아래 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
+            if recorded_file is not None:
+                audio_bytes = recorded_file.getvalue()
+        else:
+            from audio_recorder_streamlit import audio_recorder
+            audio_bytes = audio_recorder(
+                text="👉 마이크 클릭 시 시작 (🔴빨간색 = 녹음중 / 다시 클릭 시 자동변환)",
+                recording_color="#ef4444",
+                neutral_color="#1e293b",
+                icon_size="2x"
+            )
+            if audio_bytes:
+                st.audio(audio_bytes, format="audio/wav")
             
         current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
         if audio_bytes is not None and current_audio_hash != st.session_state["last_processed_hash"]:
