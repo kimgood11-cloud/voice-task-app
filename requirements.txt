@@ -1,6 +1,7 @@
-streamlit
+streamlit>=1.39.0
 google-genai
-gspread
+google-auth
 google-auth-oauthlib
+gspread
 audio-recorder-streamlit
 extra-streamlit-components
