@@ -16,7 +16,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경, 최신 AI 모델 및 마이크 색상 설정
+# [사용자 수정 가능 변수 구역 1] 기본 환경, 폴더명 및 마이크 색상 설정
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -24,6 +24,9 @@ AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음 여부 (체크를 하게 되�
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
+
+# 구글 드라이브에 최초 1회 자동 생성될 음성 녹음본 전용 폴더 이름
+DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 
 # 마이크 버튼 색상 설정 (대기 중: 검정색 / 녹음 중: 빨간색)
 MIC_BG_COLOR = "#000000"
@@ -100,7 +103,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     return prompt
 
 # =====================================================================
-# [프리미엄 UI 디자인 및 검정색 마이크 100% 노출 CSS 적용]
+# [프리미엄 UI 디자인: 한 줄 제목 + 우측 상단 잘린 빨간 이미지 제거 CSS]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -128,11 +131,11 @@ premium_css = f"""
         max-width: 820px !important;
     }}
 
-    /* 상단 배너 (모바일 화면 크기에 맞춰 글씨 잘림 없이 자동 줄바꿈) */
+    /* [핵심 해결 3] 상단 자동화시스템 제목이 어떤 모바일 화면에서도 한 줄로 들어가도록 설정 */
     .premium-header {{
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
         color: #ffffff;
-        padding: 22px 18px;
+        padding: 20px 16px;
         border-radius: 18px;
         box-shadow: 0 10px 25px -5px rgba(49, 46, 129, 0.35);
         margin-bottom: 18px;
@@ -150,15 +153,17 @@ premium_css = f"""
         letter-spacing: 0.5px;
     }}
     .premium-title {{
-        font-size: clamp(1.15rem, 4.6vw, 1.5rem);
-        font-weight: 800;
-        margin: 0 0 8px 0;
-        line-height: 1.35;
-        white-space: normal !important;
-        word-break: keep-all;
+        font-size: clamp(14.5px, 4.3vw, 22px) !important;
+        font-weight: 800 !important;
+        margin: 0 0 6px 0 !important;
+        line-height: 1.3 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        letter-spacing: -0.6px !important;
     }}
     .premium-subtitle {{
-        font-size: clamp(0.8rem, 3.2vw, 0.92rem);
+        font-size: clamp(11px, 3.1vw, 13.5px);
         color: #c7d2fe;
         margin: 0;
         font-weight: 400;
@@ -214,6 +219,34 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
+    /* 안내문 내부의 시각적 버튼 배지 스타일 (검정 마이크 / 빨간 정지 아이콘) */
+    .inline-mic-icon {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background-color: #000000;
+        color: #ffffff;
+        vertical-align: middle;
+        margin: 0 2px;
+        box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    }}
+    .inline-stop-icon {{
+        display: inline-flex;
+        align-items: center;
+        justify-content: center;
+        width: 24px;
+        height: 24px;
+        border-radius: 50%;
+        background-color: #ef4444;
+        color: #ffffff;
+        vertical-align: middle;
+        margin: 0 2px;
+        box-shadow: 0 2px 4px rgba(239,68,68,0.3);
+    }}
+
     .login-card {{
         background: #ffffff;
         border: 1px solid #e2e8f0;
@@ -239,7 +272,7 @@ premium_css = f"""
     }}
 
     /* ===================================================================== */
-    /* [핵심 해결 1] 마이크가 절대 사라지지 않고 화면 크기에 맞게 선명한 검정색으로 표시! */
+    /* [핵심 해결 1] 녹음 완료 후 파장 우측 상단에 뜨는 잘린 빨간 이미지 완전 제거! */
     /* ===================================================================== */
     div[data-testid="stAudioInput"] {{
         border: 2.5px solid #000000 !important;
@@ -249,10 +282,38 @@ premium_css = f"""
         box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
         margin-top: 6px !important;
         margin-bottom: 16px !important;
+        position: relative !important;
     }}
 
-    /* 대기 상태 마이크 버튼: 선명한 순수 검정색(#000000) 원형 버튼 + 흰색 아이콘 */
-    div[data-testid="stAudioInput"] button:first-of-type {{
+    /* 우측 상단 다운로드/삭제(Clear) 액션 버튼만 정확히 타격하여 숨김 (마이크는 절대 건드리지 않음) */
+    div[data-testid="stAudioInput"] [data-testid="stAudioInputActionButton"],
+    div[data-testid="stAudioInput"] button[aria-label*="Clear"],
+    div[data-testid="stAudioInput"] button[aria-label*="clear"],
+    div[data-testid="stAudioInput"] button[aria-label*="Download"],
+    div[data-testid="stAudioInput"] button[aria-label*="download"],
+    div[data-testid="stAudioInput"] button[aria-label*="삭제"],
+    div[data-testid="stAudioInput"] button[aria-label*="지우기"],
+    div[data-testid="stAudioInput"] button[title*="Clear"],
+    div[data-testid="stAudioInput"] button[title*="Download"],
+    div[data-testid="stAudioInput"] a[download] {{
+        display: none !important;
+        visibility: hidden !important;
+        opacity: 0 !important;
+        pointer-events: none !important;
+    }}
+
+    /* 파형 영역 우측 상단에 절대 위치(absolute)로 뜨는 보조 툴바 컨테이너 자체를 숨김 */
+    div[data-testid="stAudioInput"] > div > div[style*="position: absolute"],
+    div[data-testid="stAudioInput"] div[class*="action"] {{
+        display: none !important;
+    }}
+
+    /* 왼쪽 메인 마이크 버튼만 정확히 타격하여 큼직한 순수 검정색(#000000) 원형 버튼으로 표시 */
+    div[data-testid="stAudioInput"] button[aria-label*="Record"],
+    div[data-testid="stAudioInput"] button[aria-label*="record"],
+    div[data-testid="stAudioInput"] button[aria-label*="녹음"],
+    div[data-testid="stAudioInput"] > div > button:first-of-type,
+    div[data-testid="stAudioInput"] > div > div:last-child > button:first-of-type {{
         width: 52px !important;
         height: 52px !important;
         min-width: 52px !important;
@@ -270,23 +331,45 @@ premium_css = f"""
         box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25) !important;
     }}
 
-    div[data-testid="stAudioInput"] button:first-of-type svg {{
+    div[data-testid="stAudioInput"] button[aria-label*="Record"] svg,
+    div[data-testid="stAudioInput"] button[aria-label*="record"] svg,
+    div[data-testid="stAudioInput"] button[aria-label*="녹음"] svg,
+    div[data-testid="stAudioInput"] > div > button:first-of-type svg,
+    div[data-testid="stAudioInput"] > div > div:last-child > button:first-of-type svg {{
         width: 26px !important;
         height: 26px !important;
         fill: #ffffff !important;
         color: #ffffff !important;
-        visibility: visible !important;
-        opacity: 1 !important;
     }}
 
-    /* 녹음 중일 때(정지 버튼): 빨간색(#ef4444) 원형 버튼으로 확실하게 구분 */
+    /* 녹음 중일 때(정지 버튼): 선명한 빨간색(#ef4444) 원형 버튼 + 흰색 정지 네모 아이콘 */
     div[data-testid="stAudioInput"] button[aria-label*="Stop"],
     div[data-testid="stAudioInput"] button[aria-label*="stop"],
     div[data-testid="stAudioInput"] button[aria-label*="중지"],
     div[data-testid="stAudioInput"] button[aria-label*="정지"] {{
+        width: 52px !important;
+        height: 52px !important;
+        min-width: 52px !important;
+        min-height: 52px !important;
+        border-radius: 50% !important;
         background-color: {MIC_RECORDING_COLOR} !important;
         border: 2px solid #b91c1c !important;
+        color: #ffffff !important;
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        margin-right: 10px !important;
         box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.3) !important;
+    }}
+
+    div[data-testid="stAudioInput"] button[aria-label*="Stop"] svg,
+    div[data-testid="stAudioInput"] button[aria-label*="stop"] svg,
+    div[data-testid="stAudioInput"] button[aria-label*="중지"] svg,
+    div[data-testid="stAudioInput"] button[aria-label*="정지"] svg {{
+        width: 24px !important;
+        height: 24px !important;
+        fill: #ffffff !important;
+        color: #ffffff !important;
     }}
 
     .stButton > button {{
@@ -453,20 +536,32 @@ if "credentials" not in st.session_state:
     flow_store[state_key] = flow
     
     st.markdown(
-        """
+        f"""
         <div class="login-card">
             <div style="font-size: 42px; margin-bottom: 10px;">🔐</div>
             <h3 style="margin: 0 0 12px 0; color: #1e293b; font-weight: 800;">구글 워크스페이스 안전 연동</h3>
-            <p style="color: #64748b; font-size: 14px; margin-bottom: 14px; line-height: 1.7;">
+            <p style="color: #64748b; font-size: 14px; margin-bottom: 20px; line-height: 1.7;">
                 서비스를 시작하려면 아래 버튼을 눌러 본인의 구글 계정으로 로그인해 주세요.<br>
                 한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
                 모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
             </p>
+            <a href="{auth_url}" target="_top" style="
+                display: block;
+                background: linear-gradient(135deg, #2563eb 0%, #1d4ed8 100%);
+                color: #ffffff !important;
+                padding: 14px 20px;
+                text-decoration: none !important;
+                border-radius: 12px;
+                font-size: 15px;
+                font-weight: 700;
+                box-shadow: 0 4px 14px rgba(37, 99, 235, 0.35);
+            ">
+                🚀 내 Google 계정으로 시작하기 (클릭)
+            </a>
         </div>
         """,
         unsafe_allow_html=True
     )
-    st.link_button("🚀 내 Google 계정으로 시작하기 (클릭)", auth_url, type="primary", use_container_width=True)
     st.stop()
 
 if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"):
@@ -479,7 +574,7 @@ if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"
             key="reinforce_rt_cookie"
         )
 
-# --- [3단계] 구글 연동 보조 함수 및 오늘 기록 실시간 동기화 ---
+# --- [3단계] 구글 연동 보조 함수 및 구글 드라이브 폴더 자동 생성 ---
 def get_valid_credentials():
     creds = st.session_state["credentials"]
     if creds and creds.expired and creds.refresh_token:
@@ -490,8 +585,69 @@ def get_valid_credentials():
             pass
     return creds
 
+def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
+    """[핵심 해결 4] 내 구글 드라이브에 음성 전용 폴더가 있는지 확인하고, 없으면 최초 1회만 자동 생성합니다."""
+    if "drive_audio_folder_id" in st.session_state and st.session_state["drive_audio_folder_id"]:
+        return st.session_state["drive_audio_folder_id"]
+
+    authed_session = AuthorizedSession(creds)
+    query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    try:
+        res = authed_session.get(
+            "https://www.googleapis.com/drive/v3/files",
+            params={"q": query, "fields": "files(id, name)", "pageSize": 1}
+        )
+        if res.status_code == 200:
+            files = res.json().get("files", [])
+            if files:
+                folder_id = files[0]["id"]
+                st.session_state["drive_audio_folder_id"] = folder_id
+                return folder_id
+
+        # 폴더가 없으면 최초 1회 새로 생성
+        folder_metadata = {
+            "name": folder_name,
+            "mimeType": "application/vnd.google-apps.folder"
+        }
+        create_res = authed_session.post(
+            "https://www.googleapis.com/drive/v3/files",
+            json=folder_metadata
+        )
+        if create_res.status_code in [200, 201]:
+            folder_id = create_res.json().get("id")
+            st.session_state["drive_audio_folder_id"] = folder_id
+            return folder_id
+    except Exception:
+        pass
+    return None
+
+def upload_audio_to_drive(creds, audio_bytes, mime_type):
+    """자동 생성된 전용 음성 폴더(DRIVE_FOLDER_NAME) 안에 녹음 파일을 깔끔하게 저장합니다."""
+    authed_session = AuthorizedSession(creds)
+    folder_id = get_or_create_drive_folder(creds, DRIVE_FOLDER_NAME)
+    
+    ext = "mp3" if "mp3" in mime_type else ("m4a" if "mp4" in mime_type else "wav")
+    metadata = {"name": f"Voice_Record_{datetime.now(KST).strftime('%Y%m%d_%H%M%S')}.{ext}"}
+    if folder_id:
+        metadata["parents"] = [folder_id]
+
+    files = {
+        "data": ("metadata", json.dumps(metadata), "application/json"),
+        "file": ("audio", audio_bytes, mime_type)
+    }
+    try:
+        res = authed_session.post(
+            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
+            files=files
+        )
+        if res.status_code in [200, 201]:
+            file_id = res.json().get("id")
+            return f"https://drive.google.com/file/d/{file_id}/view"
+        return ""
+    except Exception:
+        return ""
+
 def sync_today_usage_from_sheet(today_date_str):
-    """[핵심 해결 2] 앱을 새로고침해도 오늘 녹음한 횟수와 시간이 사라지지 않도록 구글 시트에서 오늘 날짜 기록을 직접 세어옵니다."""
     try:
         creds = get_valid_credentials()
         client_gspread = gspread.authorize(creds)
@@ -507,7 +663,6 @@ def sync_today_usage_from_sheet(today_date_str):
                 today_count += 1
                 if len(row) >= 5:
                     total_chars += len(row[4])
-        # 글자 수 기반 대략적인 녹음 시간(분) 추정 (최소 건당 0.5분 보장)
         est_mins = max(today_count * 0.5, round(total_chars / 350.0, 1)) if today_count > 0 else 0.0
         return today_count, est_mins
     except Exception:
@@ -567,13 +722,22 @@ def show_api_guide_modal():
             AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
             <b>(최초 1회만 등록하면 앱을 닫아도 영구 유지됩니다 / 평생 무료)</b>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
-    st.link_button("👉 1. 여기를 눌러 Google AI Studio 열기 (새 창)", "https://aistudio.google.com/app/apikey", type="primary", use_container_width=True)
-    st.markdown(
-        """
-        <div class="step-guide-box" style="margin-top: 12px;">
+        <div style="margin-bottom: 14px;">
+            <a href="https://aistudio.google.com/app/apikey" target="_top" style="
+                display: block;
+                text-align: center;
+                background: #2563eb;
+                color: #ffffff !important;
+                padding: 12px 16px;
+                border-radius: 10px;
+                font-weight: 700;
+                text-decoration: none !important;
+                font-size: 14px;
+            ">
+                👉 1. 여기를 눌러 Google AI Studio 열기
+            </a>
+        </div>
+        <div class="step-guide-box">
             <b>[1단계] 구글 로그인 및 약관 동의</b><br>
             위 파란색 버튼을 눌러 열린 사이트에서 본인의 <b>구글 계정(Gmail)</b>으로 로그인합니다.<br>
             처음 접속 시 약관 동의 창이 뜨면 체크박스에 체크 후 파란색 <b>[Continue(계속)]</b> 버튼을 누릅니다.
@@ -634,26 +798,6 @@ def add_to_google_calendar(creds, summary, assignee, details, due_date, event_ti
     except Exception as cal_err:
         return f"⚠️ 캘린더 형식 오류 ({cal_err})"
 
-def upload_audio_to_drive(creds, audio_bytes, mime_type):
-    authed_session = AuthorizedSession(creds)
-    ext = "mp3" if "mp3" in mime_type else ("m4a" if "mp4" in mime_type else "wav")
-    metadata = {"name": f"Voice_Record_{datetime.now(KST).strftime('%Y%m%d_%H%M%S')}.{ext}"}
-    files = {
-        "data": ("metadata", json.dumps(metadata), "application/json"),
-        "file": ("audio", audio_bytes, mime_type)
-    }
-    try:
-        res = authed_session.post(
-            "https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart",
-            files=files
-        )
-        if res.status_code in [200, 201]:
-            file_id = res.json().get("id")
-            return f"https://drive.google.com/file/d/{file_id}/view"
-        return ""
-    except Exception:
-        return ""
-
 def download_audio_from_drive(creds, drive_url):
     match = re.search(r"/d/([a-zA-Z0-9_-]+)", drive_url)
     if not match:
@@ -680,7 +824,7 @@ def save_record_to_sheet(creds, row_data):
         sheet.append_row(SHEET_HEADERS)
     sheet.append_row(row_data, value_input_option="RAW")
 
-# --- [5단계] 상단 상태 바, 무료 사용량 대시보드 및 이전 깔끔한 API 키 디자인 복구! ---
+# --- [5단계] 상단 상태 바, 무료 사용량 대시보드 및 이전 깔끔한 API 키 디자인 ---
 if st.session_state["saved_api_key"]:
     col_status, col_key_btn, col_logout = st.columns([3.2, 1.1, 1.1])
     with col_status:
@@ -759,7 +903,7 @@ st.markdown(
     unsafe_allow_html=True
 )
 
-# [핵심 해결 3] 불필요한 연동 사이트 박스를 제거하고, 이전의 깔끔한 디자인으로 100% 복원!
+# 이전 깔끔한 디자인 + 어플/웹 모두 100% 열리는 직결 링크 버튼 적용
 if not st.session_state["saved_api_key"]:
     st.markdown(
         """
@@ -779,7 +923,27 @@ if not st.session_state["saved_api_key"]:
         if st.button("📖 처음이신가요? 무료 API 키 발급 절차 보기 (팝업)", type="primary", use_container_width=True):
             show_api_guide_modal()
     with col_direct_link:
-        st.link_button("🔗 Google AI Studio 바로 열기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
+        st.markdown(
+            """
+            <a href="https://aistudio.google.com/app/apikey" target="_top" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #ffffff;
+                border: 1.5px solid #2563eb;
+                color: #2563eb !important;
+                padding: 8.5px 14px;
+                border-radius: 10px;
+                font-weight: 700;
+                font-size: 14px;
+                text-decoration: none !important;
+                box-shadow: 0 2px 5px rgba(37, 99, 235, 0.1);
+            ">
+                🔗 Google AI Studio 바로 열기 (새 창)
+            </a>
+            """,
+            unsafe_allow_html=True
+        )
         
     col_input, col_save_btn = st.columns([3.5, 1.2])
     with col_input:
@@ -799,10 +963,13 @@ user_api_key = st.session_state["saved_api_key"]
 # --- [6단계] 탭 구성: 탭1(음성 입력/변환) & 탭2(저장된 녹음 리스트 조회/듣기) ---
 tab1, tab2 = st.tabs(["🎙️ 실시간 녹음 및 파일 변환", "📁 내 저장된 녹음 리스트 조회 및 바로 듣기"])
 
+# 안내문에 들어갈 실제 검정색 마이크 SVG 아이콘과 빨간색 정지 버튼 SVG 아이콘 정의
+BLACK_MIC_BADGE = '<span class="inline-mic-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
+RED_STOP_BADGE = '<span class="inline-stop-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
+
 with tab1:
     input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
     
-    # 음성 원본 녹음 체크박스 배치
     save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
     
     audio_bytes = None
@@ -810,13 +977,14 @@ with tab1:
     should_process = False
 
     if input_method == "실시간 녹음":
+        # [핵심 해결 2] 실제 아래쪽 버튼과 똑같이 생긴 검정 마이크 이미지 & 빨간 정지 버튼 이미지를 넣은 직관적 시각화 안내문!
         st.markdown(
-            """
+            f"""
             <div class="mic-guide-card">
-                <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:6px;">🎙️ 실시간 녹음 상태 확인 안내</div>
-                <div style="font-size:14px; color:#374151; line-height:1.7;">
-                    • 아래 녹음 박스 왼쪽의 <b>⚫ 검정색 마이크 버튼</b>을 클릭하면 ➡️ 즉시 <b style="color:#ef4444;">🔴 빨간색 정지 버튼(녹음중)</b> 상태로 변합니다.<br>
-                    • 말씀을 마친 후 <b style="color:#ef4444;">🔴 빨간색 정지 버튼</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
+                <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:8px;">🎙️ 실시간 녹음 상태 확인 안내</div>
+                <div style="font-size:14px; color:#374151; line-height:1.85;">
+                    • 아래 녹음 박스 왼쪽의 {BLACK_MIC_BADGE} <b>검정색 마이크 버튼</b>을 클릭하면 ➡️ 즉시 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 버튼(녹음중)</b> 상태로 변합니다.<br>
+                    • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 버튼</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
                 </div>
             </div>
             """,
@@ -934,13 +1102,13 @@ with tab1:
                 due_date = result_data.get("DueDate", "").strip()
                 event_time = result_data.get("EventTime", "").strip()
                 
-                with st.spinner("💾 내 구글 시트 요약 기록 및 캘린더 일정 자동 연동 중..."):
+                with st.spinner(f"💾 내 구글 시트 기록, 캘린더 연동 및 드라이브(`{DRIVE_FOLDER_NAME}` 폴더) 자동 저장 중..."):
                     creds = get_valid_credentials()
                     calendar_status = add_to_google_calendar(creds, summary, assignee, details, due_date, event_time)
                     
                     if save_audio_toggle:
                         drive_link = upload_audio_to_drive(creds, audio_bytes, mime_type)
-                        backup_msg = "원본 음성 드라이브 백업 포함"
+                        backup_msg = f"구글 드라이브 `{DRIVE_FOLDER_NAME}` 폴더 내 원본 저장 완료"
                     else:
                         drive_link = "원본 음성 저장 안 함 (텍스트만 기록)"
                         backup_msg = "원본 음성 백업 제외 (텍스트 및 캘린더만 연동)"
@@ -953,7 +1121,6 @@ with tab1:
                     ]
                     save_record_to_sheet(creds, row_to_save)
                     
-                    # 시트 저장 직후 오늘 사용 횟수 및 시간 즉시 재동기화!
                     s_count, s_mins = sync_today_usage_from_sheet(today_str)
                     st.session_state["daily_request_count"] = s_count
                     st.session_state["daily_used_seconds"] = s_mins * 60.0
@@ -1001,14 +1168,17 @@ with tab2:
                         col1, col2 = st.columns([1, 2])
                         with col1:
                             if st.button("▶️ 앱에서 원본 녹음 바로 듣기", key=f"play_btn_{idx}"):
-                                with st.spinner("내 구글 드라이브에서 원본 음성을 불러오는 중입니다..."):
+                                with st.spinner("내 구글 드라이브 폴더에서 원본 음성을 불러오는 중입니다..."):
                                     fetched_audio = download_audio_from_drive(creds, audio_url)
                                     if fetched_audio:
                                         st.audio(fetched_audio, format="audio/wav")
                                     else:
                                         st.error("음성 파일을 불러오지 못했습니다. 우측 드라이브 링크를 확인해 주세요.")
                         with col2:
-                            st.link_button("🔗 내 구글 드라이브에서 원본 음성 파일 열기", audio_url)
+                            st.markdown(
+                                f'<a href="{audio_url}" target="_top" style="display:inline-block; background:#f8fafc; border:1px solid #cbd5e1; color:#1e293b; padding:8px 14px; border-radius:8px; font-weight:700; text-decoration:none;">🔗 내 구글 드라이브(`{DRIVE_FOLDER_NAME}`)에서 열기</a>',
+                                unsafe_allow_html=True
+                            )
                     else:
                         st.caption("🎵 이 기록은 '음성 원본 녹음 여부' 체크 해제 상태로 저장되어 텍스트 요약만 보관되어 있습니다.")
     except gspread.exceptions.SpreadsheetNotFound:
