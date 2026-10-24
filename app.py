@@ -16,7 +16,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경, 폴더명 및 마이크 색상 설정
+# [사용자 수정 가능 변수 구역 1] 기본 환경 및 드라이브 폴더 설정
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -25,9 +25,6 @@ AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음 여부 (체크를 하게 되�
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
-
-MIC_BG_COLOR = "#000000"
-MIC_RECORDING_COLOR = "#ef4444"
 
 GEMINI_MODEL_CANDIDATES = [
     "gemini-3.8-flash",
@@ -99,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     return prompt
 
 # =====================================================================
-# [프리미엄 UI 디자인: 마이크 터치 방해 요소 100% 제거 및 안전한 CSS]
+# [UI 디자인: 마이크 아이콘을 가렸던 내부 버튼/SVG CSS를 100% 제거하여 순정 마이크 완벽 복구!]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -127,7 +124,7 @@ premium_css = f"""
         max-width: 820px !important;
     }}
 
-    /* 상단 타이틀 무조건 한 줄 표시 */
+    /* 상단 타이틀 한 줄 고정 */
     .premium-header {{
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
         color: #ffffff;
@@ -265,89 +262,12 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* ===================================================================== */
-    /* [핵심 해결] 마이크 터치를 막던 display:none 코드를 모두 제거하고 순정 기능 100% 보존! */
-    /* button:first-of-type 대신 정확히 Record(녹음) / Stop(정지) 버튼만 지정하여 */
-    /* 우측 상단 보조 아이콘이 빨간색 원으로 변하는 현상을 원천 방지합니다! */
-    /* ===================================================================== */
-    div[data-testid="stAudioInput"] {{
-        border: 2.5px solid #000000 !important;
-        border-radius: 16px !important;
-        padding: 10px 14px !important;
-        background-color: #ffffff !important;
-        box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
-        margin-top: 6px !important;
-        margin-bottom: 16px !important;
-    }}
-
-    /* 녹음 시작(마이크) 버튼만 정확히 검정색 원형으로 확대 */
-    div[data-testid="stAudioInput"] button[aria-label*="Record"],
-    div[data-testid="stAudioInput"] button[aria-label*="record"],
-    div[data-testid="stAudioInput"] button[aria-label*="녹음"] {{
-        width: 50px !important;
-        height: 50px !important;
-        min-width: 50px !important;
-        min-height: 50px !important;
-        border-radius: 50% !important;
-        background-color: {MIC_BG_COLOR} !important;
+    /* [핵심 원상복구] 녹음기 내부 버튼이나 SVG를 건드리지 않고 바깥 테두리만 잡아주어 순정 마이크가 100% 보이게 함! */
+    [data-testid="stAudioInput"] {{
         border: 2px solid #000000 !important;
-        color: #ffffff !important;
-        margin-right: 8px !important;
-        box-shadow: 0 3px 8px rgba(0, 0, 0, 0.25) !important;
-    }}
-
-    div[data-testid="stAudioInput"] button[aria-label*="Record"] svg,
-    div[data-testid="stAudioInput"] button[aria-label*="record"] svg,
-    div[data-testid="stAudioInput"] button[aria-label*="녹음"] svg {{
-        width: 25px !important;
-        height: 25px !important;
-        fill: #ffffff !important;
-        color: #ffffff !important;
-    }}
-
-    /* 녹음 정지(Stop) 버튼만 정확히 빨간색 원형으로 확대 */
-    div[data-testid="stAudioInput"] button[aria-label*="Stop"],
-    div[data-testid="stAudioInput"] button[aria-label*="stop"],
-    div[data-testid="stAudioInput"] button[aria-label*="중지"],
-    div[data-testid="stAudioInput"] button[aria-label*="정지"] {{
-        width: 50px !important;
-        height: 50px !important;
-        min-width: 50px !important;
-        min-height: 50px !important;
-        border-radius: 50% !important;
-        background-color: {MIC_RECORDING_COLOR} !important;
-        border: 2px solid #b91c1c !important;
-        color: #ffffff !important;
-        margin-right: 8px !important;
-        box-shadow: 0 0 0 4px rgba(239, 68, 68, 0.3) !important;
-    }}
-
-    div[data-testid="stAudioInput"] button[aria-label*="Stop"] svg,
-    div[data-testid="stAudioInput"] button[aria-label*="stop"] svg,
-    div[data-testid="stAudioInput"] button[aria-label*="중지"] svg,
-    div[data-testid="stAudioInput"] button[aria-label*="정지"] svg {{
-        width: 24px !important;
-        height: 24px !important;
-        fill: #ffffff !important;
-        color: #ffffff !important;
-    }}
-
-    /* 우측 상단 보조 액션바(다운로드/초기화)는 빨간색이 입혀지지 않도록 투명하게 숨김 */
-    div[data-testid="stAudioInput"] [data-testid="stAudioInputActionButton"] {{
-        display: none !important;
-    }}
-
-    /* 링크 버튼의 글씨가 파란색으로 묻히지 않도록 흰색 바탕 + 진한 검정/남색 글씨 보장 */
-    div[data-testid="stLinkButton"] > a {{
+        border-radius: 14px !important;
+        padding: 10px !important;
         background-color: #ffffff !important;
-        color: #1e293b !important;
-        border: 2px solid #2563eb !important;
-        border-radius: 12px !important;
-        font-weight: 800 !important;
-        font-size: 15px !important;
-        padding: 12px 16px !important;
-        text-decoration: none !important;
-        box-shadow: 0 4px 10px rgba(37, 99, 235, 0.15) !important;
     }}
 
     .stButton > button {{
@@ -500,7 +420,7 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
-# --- [2단계] 로그인 전 화면 (파란색 겹침 현상 완전 해결: 흰색 바탕에 진한 검정 글씨 버튼) ---
+# --- [2단계] 로그인 전 화면 (어플과 웹 모두 100% 클릭되는 표준 링크 적용) ---
 if "credentials" not in st.session_state:
     if len(flow_store) > 100:
         flow_store.clear()
@@ -523,17 +443,17 @@ if "credentials" not in st.session_state:
                 한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
                 모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
             </p>
-            <a href="{auth_url}" target="_top" style="
+            <a href="{auth_url}" style="
                 display: block;
-                background-color: #ffffff;
-                border: 2.5px solid #1e293b;
-                color: #000000 !important;
-                padding: 14px 20px;
+                background-color: #1e293b;
+                border: 2px solid #000000;
+                color: #ffffff !important;
+                padding: 15px 20px;
                 text-decoration: none !important;
                 border-radius: 12px;
                 font-size: 16px;
                 font-weight: 800;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
             ">
                 🚀 내 Google 계정으로 로그인 시작하기
             </a>
@@ -553,7 +473,7 @@ if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"
             key="reinforce_rt_cookie"
         )
 
-# --- [3단계] 구글 드라이브 폴더 자동 생성 및 시트 동기화 ---
+# --- [3단계] 구글 드라이브 폴더 자동 생성 및 시트 동기화 (검증된 코드 100% 유지) ---
 def get_valid_credentials():
     creds = st.session_state["credentials"]
     if creds and creds.expired and creds.refresh_token:
@@ -698,13 +618,22 @@ def show_api_guide_modal():
             AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
             <b>(최초 1회만 등록하면 앱을 닫아도 영구 유지됩니다 / 평생 무료)</b>
         </div>
-        """,
-        unsafe_allow_html=True
-    )
-    st.link_button("👉 1. 여기를 눌러 Google AI Studio 열기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
-    st.markdown(
-        """
-        <div class="step-guide-box" style="margin-top: 12px;">
+        <div style="margin-bottom: 14px;">
+            <a href="https://aistudio.google.com/app/apikey" style="
+                display: block;
+                text-align: center;
+                background: #1e293b;
+                color: #ffffff !important;
+                padding: 12px 16px;
+                border-radius: 10px;
+                font-weight: 700;
+                text-decoration: none !important;
+                font-size: 14px;
+            ">
+                👉 1. 여기를 눌러 Google AI Studio 열기
+            </a>
+        </div>
+        <div class="step-guide-box">
             <b>[1단계] 구글 로그인 및 약관 동의</b><br>
             위 버튼을 눌러 열린 사이트에서 본인의 <b>구글 계정(Gmail)</b>으로 로그인합니다.<br>
             처음 접속 시 약관 동의 창이 뜨면 체크박스에 체크 후 파란색 <b>[Continue(계속)]</b> 버튼을 누릅니다.
@@ -889,7 +818,26 @@ if not st.session_state["saved_api_key"]:
         if st.button("📖 처음이신가요? 무료 API 키 발급 절차 보기 (팝업)", type="primary", use_container_width=True):
             show_api_guide_modal()
     with col_direct_link:
-        st.link_button("🔗 Google AI Studio 바로 열기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
+        st.markdown(
+            """
+            <a href="https://aistudio.google.com/app/apikey" style="
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                background-color: #1e293b;
+                border: 1.5px solid #000000;
+                color: #ffffff !important;
+                padding: 9px 14px;
+                border-radius: 10px;
+                font-weight: 700;
+                font-size: 14px;
+                text-decoration: none !important;
+            ">
+                🔗 Google AI Studio 바로 열기
+            </a>
+            """,
+            unsafe_allow_html=True
+        )
         
     col_input, col_save_btn = st.columns([3.5, 1.2])
     with col_input:
@@ -926,16 +874,16 @@ with tab1:
             <div class="mic-guide-card">
                 <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:8px;">🎙️ 실시간 녹음 상태 확인 안내</div>
                 <div style="font-size:14px; color:#374151; line-height:1.85;">
-                    • 아래 녹음 박스 왼쪽의 {BLACK_MIC_BADGE} <b>검정색 마이크 버튼</b>을 클릭하면 ➡️ 즉시 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 버튼(녹음중)</b> 상태로 변합니다.<br>
-                    • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 버튼</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
+                    • 아래 녹음 박스 왼쪽의 {BLACK_MIC_BADGE} <b>마이크 아이콘</b>을 클릭하면 ➡️ 즉시 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 아이콘(녹음중)</b> 상태로 변합니다.<br>
+                    • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">정지 아이콘</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
                 </div>
             </div>
             """,
             unsafe_allow_html=True
         )
         
-        # 순정 상태 그대로 작동하는 공식 내장 마이크 위젯
-        recorded_file = st.audio_input("👇 아래 왼쪽의 검정색 마이크 버튼(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
+        # 순정 상태 그대로 100% 표시되는 마이크 위젯
+        recorded_file = st.audio_input("👇 아래 왼쪽의 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
         if recorded_file is not None:
             audio_bytes = recorded_file.getvalue()
             
@@ -1119,7 +1067,10 @@ with tab2:
                                     else:
                                         st.error("음성 파일을 불러오지 못했습니다. 우측 드라이브 링크를 확인해 주세요.")
                         with col2:
-                            st.link_button(f"🔗 내 구글 드라이브(`{DRIVE_FOLDER_NAME}`)에서 열기", audio_url)
+                            st.markdown(
+                                f'<a href="{audio_url}" style="display:inline-block; background:#1e293b; color:#ffffff !important; padding:8px 14px; border-radius:8px; font-weight:700; text-decoration:none;">🔗 내 구글 드라이브(`{DRIVE_FOLDER_NAME}`)에서 열기</a>',
+                                unsafe_allow_html=True
+                            )
                     else:
                         st.caption("🎵 이 기록은 '음성 원본 녹음 여부' 체크 해제 상태로 저장되어 텍스트 요약만 보관되어 있습니다.")
     except gspread.exceptions.SpreadsheetNotFound:
