@@ -16,7 +16,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 및 드라이브 폴더 설정
+# [사용자 수정 가능 변수 구역 1] 기본 환경 및 드라이브 폴더 설정 (수정 없이 보존)
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -51,7 +51,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수
+# [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수 (수정 없이 보존)
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     return prompt
 
 # =====================================================================
-# [UI 디자인: 마이크 아이콘을 가렸던 내부 버튼/SVG CSS를 100% 제거하여 순정 마이크 완벽 복구!]
+# [UI 디자인: 잘 작동하는 순정 마이크 유지 + 크기만 1.35배 살짝 확대!]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -262,12 +262,17 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* [핵심 원상복구] 녹음기 내부 버튼이나 SVG를 건드리지 않고 바깥 테두리만 잡아주어 순정 마이크가 100% 보이게 함! */
+    /* [핵심] 순정 마이크 디자인은 그대로 두고, 왼쪽 마이크 아이콘 크기만 1.35배로 살짝 확대! */
     [data-testid="stAudioInput"] {{
         border: 2px solid #000000 !important;
         border-radius: 14px !important;
-        padding: 10px !important;
+        padding: 12px !important;
         background-color: #ffffff !important;
+    }}
+    [data-testid="stAudioInput"] button:first-of-type {{
+        transform: scale(1.35) !important;
+        margin-left: 6px !important;
+        margin-right: 10px !important;
     }}
 
     .stButton > button {{
@@ -420,7 +425,7 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
-# --- [2단계] 로그인 전 화면 (어플과 웹 모두 100% 클릭되는 표준 링크 적용) ---
+# --- [2단계] 로그인 전 화면 (이전에 어플에서 로그인이 잘 됐던 target="_blank" + 흰색 바탕 적용!) ---
 if "credentials" not in st.session_state:
     if len(flow_store) > 100:
         flow_store.clear()
@@ -443,17 +448,17 @@ if "credentials" not in st.session_state:
                 한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
                 모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
             </p>
-            <a href="{auth_url}" style="
+            <a href="{auth_url}" target="_blank" rel="noopener noreferrer" style="
                 display: block;
-                background-color: #1e293b;
-                border: 2px solid #000000;
-                color: #ffffff !important;
+                background-color: #ffffff;
+                border: 2.5px solid #2563eb;
+                color: #2563eb !important;
                 padding: 15px 20px;
                 text-decoration: none !important;
                 border-radius: 12px;
                 font-size: 16px;
                 font-weight: 800;
-                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+                box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);
             ">
                 🚀 내 Google 계정으로 로그인 시작하기
             </a>
@@ -473,7 +478,7 @@ if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"
             key="reinforce_rt_cookie"
         )
 
-# --- [3단계] 구글 드라이브 폴더 자동 생성 및 시트 동기화 (검증된 코드 100% 유지) ---
+# --- [3단계] 구글 드라이브 폴더 자동 생성 및 시트 동기화 (검증된 코드 100% 보존) ---
 def get_valid_credentials():
     creds = st.session_state["credentials"]
     if creds and creds.expired and creds.refresh_token:
@@ -619,18 +624,19 @@ def show_api_guide_modal():
             <b>(최초 1회만 등록하면 앱을 닫아도 영구 유지됩니다 / 평생 무료)</b>
         </div>
         <div style="margin-bottom: 14px;">
-            <a href="https://aistudio.google.com/app/apikey" style="
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="
                 display: block;
                 text-align: center;
-                background: #1e293b;
-                color: #ffffff !important;
+                background: #ffffff;
+                border: 2px solid #2563eb;
+                color: #2563eb !important;
                 padding: 12px 16px;
                 border-radius: 10px;
-                font-weight: 700;
+                font-weight: 800;
                 text-decoration: none !important;
                 font-size: 14px;
             ">
-                👉 1. 여기를 눌러 Google AI Studio 열기
+                👉 1. 여기를 눌러 Google AI Studio 열기 (새 창)
             </a>
         </div>
         <div class="step-guide-box">
@@ -820,20 +826,20 @@ if not st.session_state["saved_api_key"]:
     with col_direct_link:
         st.markdown(
             """
-            <a href="https://aistudio.google.com/app/apikey" style="
+            <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="
                 display: flex;
                 align-items: center;
                 justify-content: center;
-                background-color: #1e293b;
-                border: 1.5px solid #000000;
-                color: #ffffff !important;
+                background-color: #ffffff;
+                border: 2px solid #2563eb;
+                color: #2563eb !important;
                 padding: 9px 14px;
                 border-radius: 10px;
-                font-weight: 700;
+                font-weight: 800;
                 font-size: 14px;
                 text-decoration: none !important;
             ">
-                🔗 Google AI Studio 바로 열기
+                🔗 Google AI Studio 바로 열기 (새 창)
             </a>
             """,
             unsafe_allow_html=True
@@ -882,7 +888,6 @@ with tab1:
             unsafe_allow_html=True
         )
         
-        # 순정 상태 그대로 100% 표시되는 마이크 위젯
         recorded_file = st.audio_input("👇 아래 왼쪽의 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
         if recorded_file is not None:
             audio_bytes = recorded_file.getvalue()
@@ -1068,7 +1073,7 @@ with tab2:
                                         st.error("음성 파일을 불러오지 못했습니다. 우측 드라이브 링크를 확인해 주세요.")
                         with col2:
                             st.markdown(
-                                f'<a href="{audio_url}" style="display:inline-block; background:#1e293b; color:#ffffff !important; padding:8px 14px; border-radius:8px; font-weight:700; text-decoration:none;">🔗 내 구글 드라이브(`{DRIVE_FOLDER_NAME}`)에서 열기</a>',
+                                f'<a href="{audio_url}" target="_blank" rel="noopener noreferrer" style="display:inline-block; background:#ffffff; border:2px solid #2563eb; color:#2563eb !important; padding:8px 14px; border-radius:8px; font-weight:800; text-decoration:none;">🔗 내 구글 드라이브(`{DRIVE_FOLDER_NAME}`)에서 열기</a>',
                                 unsafe_allow_html=True
                             )
                     else:
