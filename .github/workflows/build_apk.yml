@@ -85,8 +85,8 @@ jobs:
                   applicationId "${PACKAGE_ID}"
                   minSdk 24
                   targetSdk 34
-                  versionCode 8
-                  versionName "8.0"
+                  versionCode 10
+                  versionName "10.0"
               }
               buildTypes {
                   release {
@@ -146,7 +146,6 @@ jobs:
           import android.content.pm.PackageManager
           import android.net.Uri
           import android.os.Bundle
-          import android.os.Message
           import android.webkit.*
           import androidx.appcompat.app.AppCompatActivity
           import androidx.core.app.ActivityCompat
@@ -160,6 +159,21 @@ jobs:
               
               private lateinit var webView: WebView
               private var fileUploadCallback: ValueCallback<Array<Uri>>? = null
+
+              // [핵심 해결] 웹화면의 링크를 터치하는 순간 안드로이드 네이티브가 직접 받아 즉시 이동시키는 브릿지!
+              inner class AndroidLinkBridge {
+                  @JavascriptInterface
+                  fun openUrl(url: String) {
+                      if (!url.startsWith("http://") && !url.startsWith("https://")) return
+                      runOnUiThread {
+                          if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
+                              startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                          } else {
+                              webView.loadUrl(url)
+                          }
+                      }
+                  }
+              }
 
               override fun onCreate(savedInstanceState: Bundle?) {
                   super.onCreate(savedInstanceState)
@@ -175,8 +189,6 @@ jobs:
 
                   webView = WebView(this)
                   setContentView(webView)
-
-                  // 구버전 화면이 남아있지 않도록 웹뷰 캐시 초기화 (쿠키는 보존)
                   webView.clearCache(true)
 
                   val cookieManager = CookieManager.getInstance()
@@ -187,27 +199,53 @@ jobs:
                   s.javaScriptEnabled = true
                   s.domStorageEnabled = true
                   s.databaseEnabled = true
-                  s.setSupportMultipleWindows(true)
-                  s.javaScriptCanOpenWindowsAutomatically = true
+                  s.setSupportMultipleWindows(false)
                   s.mediaPlaybackRequiresUserGesture = false
                   s.allowFileAccess = true
                   s.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
                   s.cacheMode = WebSettings.LOAD_DEFAULT
                   s.userAgentString = "Mozilla/5.0 (Linux; Android 13; SM-S918N) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36"
 
+                  // 안드로이드 직결 브릿지 장착
+                  webView.addJavascriptInterface(AndroidLinkBridge(), "AndroidBridge")
+
                   val prefs = getSharedPreferences("VoiceAppPrefs", Context.MODE_PRIVATE)
 
-                  // 1. 일반 링크(target="_top") 클릭 처리
                   webView.webViewClient = object : WebViewClient() {
                       override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
                           val url = request?.url.toString()
-                          return handleUrlNavigation(url)
+                          if (!url.startsWith("http://") && !url.startsWith("https://")) return true
+                          if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
+                              startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
+                              return true
+                          }
+                          return false
                       }
 
                       override fun onPageFinished(view: WebView?, url: String?) {
                           super.onPageFinished(view, url)
                           CookieManager.getInstance().flush()
                           
+                          // 화면 내 모든 링크(구글 로그인, AI Studio 등)를 터치하는 즉시 AndroidBridge로 직결!
+                          view?.evaluateJavascript(
+                              """
+                              setInterval(function() {
+                                  document.querySelectorAll('a[href^="http"]').forEach(function(a) {
+                                      if (!a.dataset.bridged) {
+                                          a.dataset.bridged = 'true';
+                                          a.removeAttribute('target');
+                                          a.addEventListener('click', function(e) {
+                                              e.preventDefault();
+                                              e.stopPropagation();
+                                              window.AndroidBridge.openUrl(this.href);
+                                          }, true);
+                                      }
+                                  });
+                              }, 400);
+                              """.trimIndent(),
+                              null
+                          )
+
                           if (url != null && url.contains("streamlit.app")) {
                               if (url.contains("rt=") || url.contains("ak=")) {
                                   prefs.edit().putString("saved_full_url", url).apply()
@@ -216,7 +254,6 @@ jobs:
                       }
                   }
 
-                  // 2. 새 창 링크(st.link_button 등 target="_blank") 클릭 100% 연동 처리
                   webView.webChromeClient = object : WebChromeClient() {
                       override fun onPermissionRequest(request: PermissionRequest?) {
                           request?.let {
@@ -240,36 +277,6 @@ jobs:
                           startActivityForResult(Intent.createChooser(intent, "음성 파일 선택"), FILE_CHOOSER_CODE)
                           return true
                       }
-
-                      override fun onCreateWindow(
-                          view: WebView?, isDialog: Boolean, isUserGesture: Boolean, resultMsg: Message?
-                      ): Boolean {
-                          val tempWebView = WebView(this@MainActivity)
-                          tempWebView.settings.javaScriptEnabled = true
-                          tempWebView.webViewClient = object : WebViewClient() {
-                              private var handled = false
-                              override fun shouldOverrideUrlLoading(v: WebView?, req: WebResourceRequest?): Boolean {
-                                  val targetUrl = req?.url.toString()
-                                  if (!handled && targetUrl.startsWith("http")) {
-                                      handled = true
-                                      routeNewWindowUrl(targetUrl)
-                                      v?.destroy()
-                                  }
-                                  return true
-                              }
-                              override fun onPageStarted(v: WebView?, url: String?, favicon: android.graphics.Bitmap?) {
-                                  if (!handled && url != null && url.startsWith("http")) {
-                                      handled = true
-                                      routeNewWindowUrl(url)
-                                      v?.destroy()
-                                  }
-                              }
-                          }
-                          val transport = resultMsg?.obj as? WebView.WebViewTransport
-                          transport?.webView = tempWebView
-                          resultMsg?.sendToTarget()
-                          return true
-                      }
                   }
 
                   val lastSavedUrl = prefs.getString("saved_full_url", null)
@@ -277,25 +284,6 @@ jobs:
                       webView.loadUrl(lastSavedUrl)
                   } else {
                       webView.loadUrl(BASE_URL)
-                  }
-              }
-
-              private fun handleUrlNavigation(url: String): Boolean {
-                  if (!url.startsWith("http://") && !url.startsWith("https://")) return true
-                  // AI 스튜디오 및 드라이브는 외부 크롬 새 창으로 오픈
-                  if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
-                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                      return true
-                  }
-                  // 구글 로그인(accounts.google.com)은 앱 내부 웹뷰에서 그대로 진행하여 자동 로그인 유지!
-                  return false
-              }
-
-              private fun routeNewWindowUrl(url: String) {
-                  if (url.contains("aistudio.google.com") || url.contains("drive.google.com")) {
-                      startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                  } else {
-                      webView.loadUrl(url)
                   }
               }
 
