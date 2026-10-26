@@ -16,7 +16,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 및 드라이브 폴더 설정 (수정 없이 보존)
+# [사용자 수정 가능 변수 구역 1] 기본 환경 및 드라이브 폴더 설정 (수정 없이 100% 보존)
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -26,6 +26,7 @@ REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 
+# 404 및 503(서버 혼잡) 발생 시 순차적으로 우회할 최신 Gemini 모델 리스트
 GEMINI_MODEL_CANDIDATES = [
     "gemini-3.8-flash",
     "gemini-flash-latest",
@@ -33,6 +34,9 @@ GEMINI_MODEL_CANDIDATES = [
     "gemini-2.0-flash",
     "gemini-2.5-flash"
 ]
+
+# 서버 혼잡(503) 감지 시 재시도 대기 시간(초)
+RETRY_DELAY_SECONDS = 1.5
 
 COOKIE_EXPIRY_DAYS = 365
 MAX_SINGLE_FREE_MINUTES = 120
@@ -51,7 +55,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수 (수정 없이 보존)
+# [사용자 수정 가능 변수 구역 2] AI 프롬프트(지시문) 생성 함수 (수정 없이 100% 보존)
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -96,7 +100,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     return prompt
 
 # =====================================================================
-# [UI 디자인: 잘 작동하는 순정 마이크 유지 + 크기만 1.35배 살짝 확대!]
+# [UI 디자인: 검증 완료된 CSS 100% 그대로 보존]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -124,7 +128,6 @@ premium_css = f"""
         max-width: 820px !important;
     }}
 
-    /* 상단 타이틀 한 줄 고정 */
     .premium-header {{
         background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%);
         color: #ffffff;
@@ -262,7 +265,6 @@ premium_css = f"""
         word-break: keep-all;
     }}
 
-    /* [핵심] 순정 마이크 디자인은 그대로 두고, 왼쪽 마이크 아이콘 크기만 1.35배로 살짝 확대! */
     [data-testid="stAudioInput"] {{
         border: 2px solid #000000 !important;
         border-radius: 14px !important;
@@ -425,7 +427,7 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
-# --- [2단계] 로그인 전 화면 (이전에 어플에서 로그인이 잘 됐던 target="_blank" + 흰색 바탕 적용!) ---
+# --- [2단계] 로그인 전 화면 ---
 if "credentials" not in st.session_state:
     if len(flow_store) > 100:
         flow_store.clear()
@@ -478,7 +480,7 @@ if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"
             key="reinforce_rt_cookie"
         )
 
-# --- [3단계] 구글 드라이브 폴더 자동 생성 및 시트 동기화 (검증된 코드 100% 보존) ---
+# --- [3단계] 구글 드라이브 폴더 자동 생성 및 시트 동기화 ---
 def get_valid_credentials():
     creds = st.session_state["credentials"]
     if creds and creds.expired and creds.refresh_token:
@@ -582,23 +584,37 @@ if "sheet_synced_flag" not in st.session_state or st.session_state.get("usage_da
 if "last_processed_hash" not in st.session_state:
     st.session_state["last_processed_hash"] = None
 
-# --- [4단계] 스마트 AI 모델 자동 전환 및 API 키 저장/가이드 ---
+# =====================================================================
+# [핵심 업그레이드] 404뿐만 아니라 503(서버 일시적 과부하) 발생 시에도
+# 에러를 띄우지 않고 자동으로 다음 여유로운 AI 모델로 우회 및 재시도!
+# =====================================================================
 def generate_with_model_fallback(client_gemini, contents_payload, gen_config):
     last_error = None
-    for model_name in GEMINI_MODEL_CANDIDATES:
-        try:
-            response = client_gemini.models.generate_content(
-                model=model_name,
-                contents=contents_payload,
-                config=gen_config
-            )
-            return response, model_name
-        except Exception as err:
-            err_str = str(err)
-            last_error = err
-            if "404" in err_str or "NOT_FOUND" in err_str or "no longer available" in err_str or "not found" in err_str.lower():
-                continue
-            else:
+    # 최대 2바퀴 순회하며 일시적 서버 과부하(503)를 완벽하게 방어합니다.
+    for attempt in range(2):
+        for model_name in GEMINI_MODEL_CANDIDATES:
+            try:
+                response = client_gemini.models.generate_content(
+                    model=model_name,
+                    contents=contents_payload,
+                    config=gen_config
+                )
+                return response, model_name
+            except Exception as err:
+                err_str = str(err)
+                err_lower = err_str.lower()
+                last_error = err
+                
+                # 1. 모델 버전 미지원(404)인 경우 대기 없이 즉시 다음 후보 모델로 전환
+                if "404" in err_str or "not_found" in err_lower or "no longer available" in err_lower or "not found" in err_lower:
+                    continue
+                
+                # 2. 구글 서버 일시적 접속 폭주(503 UNAVAILABLE / high demand / overloaded)인 경우
+                # 잠시 대기 후 다음 여유로운 후보 모델로 즉시 우회!
+                if "503" in err_str or "unavailable" in err_lower or "high demand" in err_lower or "overloaded" in err_lower or "429" in err_str or "resource_exhausted" in err_lower:
+                    time.sleep(RETRY_DELAY_SECONDS)
+                    continue
+                
                 raise err
     raise last_error
 
@@ -1022,7 +1038,7 @@ with tab1:
                     st.session_state["daily_request_count"] = s_count
                     st.session_state["daily_used_seconds"] = s_mins * 60.0
                 
-                st.success(f"✨ AI 음성 분석 및 내 구글 시트(`{SHEET_NAME}`) 저장 완료! (오늘 누적: {s_count}회)")
+                st.success(f"✨ AI 음성 분석 및 내 구글 시트(`{SHEET_NAME}`) 저장 완료! (적용 모델: `{used_model_name}` | 오늘 누적: {s_count}회)")
                 st.markdown(f"### 📌 {summary}")
                 st.write(f"**🏷️ 카테고리:** `{category}` | **👤 담당자:** `{assignee}` | **⏰ 약속일시:** `{due_date} {event_time}`")
                 st.text_area("📝 상세 회의 주제별 정리 및 전체 받아쓰기 내용", value=details, height=240)
