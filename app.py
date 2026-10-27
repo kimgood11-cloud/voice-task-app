@@ -55,7 +55,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 2] AI 프롬프트 (장시간 녹음 다중 요약 대응)
+# [사용자 수정 가능 변수 구역 2] AI 프롬프트 (기존 코드 100% 보존)
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -127,26 +127,7 @@ premium_css = f"""
 """
 st.markdown(premium_css, unsafe_allow_html=True)
 
-# =====================================================================
-# [핵심 디테일 추가] 쿠키 로딩 중 구글 로그인 화면 깜빡임 원천 차단
-# =====================================================================
 cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
-
-if "init_cookie_check" not in st.session_state:
-    st.session_state["init_cookie_check"] = True
-    st.markdown(
-        """
-        <div style="text-align: center; padding-top: 60px;">
-            <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
-            <div style="font-size: 18px; font-weight: 800; color: #1e293b;">안전한 통신을 위해 보안 인증 상태를 확인하고 있습니다...</div>
-            <div style="font-size: 14px; color: #64748b; margin-top: 5px;">잠시만 기다려주세요 (약 1초 소요)</div>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-    time.sleep(0.7) # 프론트엔드 쿠키가 백엔드로 완벽히 넘어올 시간을 부여하여 로그인 창 번쩍임 방지
-    st.rerun()
-
 all_cookies = cookie_manager.get_all()
 
 # --- [1단계] 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
@@ -259,7 +240,32 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
+# =====================================================================
+# [해결 1] 로그인 화면 깜빡임 원천 차단 (최종 렌더링 직전 강제 딜레이)
+# =====================================================================
 if "credentials" not in st.session_state:
+    # URL에 처리 중인 코드가 있다면 로그인 화면 표시 금지
+    if "code" in st.query_params or "rt" in st.query_params:
+        st.markdown("<div style='text-align: center; padding-top: 60px;'><div style='font-size: 40px; margin-bottom: 15px;'>⏳</div><div style='font-size: 18px; font-weight: 800; color: #1e293b;'>구글 계정 연동 중입니다...</div></div>", unsafe_allow_html=True)
+        st.stop()
+        
+    # 쿠키를 불러오는 찰나의 순간(깜빡임)을 막기 위해 1.5초간 안전 대기
+    if "login_delay_done" not in st.session_state:
+        st.session_state["login_delay_done"] = True
+        st.markdown(
+            """
+            <div style="text-align: center; padding-top: 60px;">
+                <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
+                <div style="font-size: 18px; font-weight: 800; color: #1e293b;">안전한 통신을 위해 보안 인증 상태를 확인하고 있습니다...</div>
+                <div style="font-size: 14px; color: #64748b; margin-top: 5px;">잠시만 기다려주세요 (약 1초 소요)</div>
+            </div>
+            """, 
+            unsafe_allow_html=True
+        )
+        time.sleep(1.5)
+        st.rerun()
+
+    # 1.5초 대기 후에도 인증 정보가 없다면 진짜 로그인 전 화면 표시
     if len(flow_store) > 100:
         flow_store.clear()
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
@@ -557,184 +563,19 @@ if not st.session_state["saved_api_key"]:
 
 user_api_key = st.session_state["saved_api_key"]
 
-# --- [6단계] 탭 구성: 탭1(녹음), 탭2(리스트), 탭3(주간 보고서 전용 페이지 자동 추가) ---
-tab1, tab2, tab3 = st.tabs([
-    "🎙️ 실시간 녹음 및 파일 변환", 
-    "📁 내 저장된 녹음 리스트 조회 및 바로 듣기", 
-    "📊 주간 요약 보고서 및 전용 페이지 추가"
-])
-
 BLACK_MIC_BADGE = '<span class="inline-mic-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span class="inline-stop-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
 
-with tab1:
-    input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
-    save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
-    
-    audio_bytes = None
-    mime_type = "audio/wav"
-    should_process = False
+# =====================================================================
+# [해결 2] 탭(Tab) 구조 완전 삭제 및 아코디언(Expander) 메뉴 세로 배치
+# =====================================================================
+input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
+save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
-    if input_method == "실시간 녹음":
-        st.markdown(
-            f"""
-            <div class="mic-guide-card">
-                <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:8px;">🎙️ 실시간 녹음 상태 확인 안내</div>
-                <div style="font-size:14px; color:#374151; line-height:1.85;">
-                    • 아래 녹음 박스 왼쪽의 {BLACK_MIC_BADGE} <b>마이크 아이콘</b>을 클릭하면 ➡️ 즉시 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 아이콘(녹음중)</b> 상태로 변합니다.<br>
-                    • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">정지 아이콘</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        
-        recorded_file = st.audio_input("👇 아래 왼쪽의 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
-        if recorded_file is not None:
-            audio_bytes = recorded_file.getvalue()
-            
-        current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
-        if audio_bytes is not None and current_audio_hash != st.session_state["last_processed_hash"]:
-            should_process = True
+st.markdown("<br>", unsafe_allow_html=True) # 여백 추가
 
-    else:
-        st.markdown(
-            """
-            <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #3b82f6; border-radius:12px; padding:15px 18px; margin-top:8px; margin-bottom:14px; word-break:keep-all;">
-                <div style="font-size:15px; font-weight:800; color:#1e3a8a; margin-bottom:6px;">📂 녹음 파일 업로드 및 변환 방법 (30분 이상 장시간 녹음 지원)</div>
-                <div style="font-size:14px; color:#334155; line-height:1.7;">
-                    1. 아래 <b>[Browse files]</b> 버튼을 눌러 휴대폰이나 PC에 저장된 대용량 음성 파일(mp3, wav, m4a)을 선택하세요.<br>
-                    2. 파일이 첨부되면 아래에 나타나는 <b>[🚀 업로드한 파일 변환 및 저장 실행]</b> 버튼을 클릭하세요.
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
-        uploaded_file = st.file_uploader("변환할 음성 파일을 선택하세요 (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
-        if uploaded_file:
-            audio_bytes = uploaded_file.read()
-            ext = uploaded_file.name.split(".")[-1].lower()
-            mime_map = {"mp3": "audio/mp3", "m4a": "audio/mp4", "wav": "audio/wav"}
-            mime_type = mime_map.get(ext, "audio/wav")
-            st.audio(audio_bytes, format=mime_type)
-            
-        current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
-        if st.button("🚀 업로드한 파일 변환 및 저장 실행", type="primary", use_container_width=True):
-            should_process = True
-
-    if should_process:
-        if not user_api_key:
-            st.warning("⚠️ 상단에 본인의 무료 Gemini API 키를 먼저 등록해 주세요.")
-        elif not audio_bytes or len(audio_bytes) < 100:
-            st.warning("⚠️ 분석할 음성 데이터가 없거나 너무 짧습니다. 다시 녹음하거나 파일을 선택해 주세요.")
-        elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS:
-            st.error(f"🛑 오늘의 무료 사용 안전 한도({DAILY_FREE_LIMIT_MINUTES}분 또는 {DAILY_FREE_LIMIT_REQUESTS}회)를 모두 소진했습니다.")
-        else:
-            file_size_mb = len(audio_bytes) / (1024 * 1024)
-            try:
-                now = datetime.now(KST)
-                current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
-                weekday_korean = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][now.weekday()]
-                
-                prompt_text = build_gemini_prompt(current_time_str, weekday_korean, today_str)
-                active_timeout_ms = SHORT_AUDIO_TIMEOUT_MS if file_size_mb <= 5.0 else LONG_AUDIO_TIMEOUT_MS
-                client_gemini = genai.Client(
-                    api_key=user_api_key.strip(),
-                    http_options=types.HttpOptions(timeout=active_timeout_ms)
-                )
-                
-                json_schema = types.Schema(
-                    type=types.Type.OBJECT,
-                    properties={
-                        "Category": types.Schema(type=types.Type.STRING),
-                        "Assignee": types.Schema(type=types.Type.STRING),
-                        "Summary": types.Schema(type=types.Type.STRING),
-                        "Details": types.Schema(type=types.Type.STRING),
-                        "DueDate": types.Schema(type=types.Type.STRING),
-                        "EventTime": types.Schema(type=types.Type.STRING),
-                    },
-                    required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"]
-                )
-                gen_config = types.GenerateContentConfig(
-                    response_mime_type="application/json",
-                    response_schema=json_schema,
-                    temperature=0.1
-                )
-                
-                spinner_msg = "⚡ 초고속 Gemini AI가 장시간 녹음을 정밀 다중 요약 중입니다..." if file_size_mb > 5.0 else "⚡ 최신 Gemini AI가 음성을 정밀 분석 중입니다..."
-                with st.spinner(spinner_msg):
-                    if file_size_mb <= INLINE_LIMIT_MB:
-                        response, used_model_name = generate_with_model_fallback(
-                            client_gemini,
-                            [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt_text],
-                            gen_config
-                        )
-                    else:
-                        uploaded_file_obj = None
-                        try:
-                            audio_stream = io.BytesIO(audio_bytes)
-                            uploaded_file_obj = client_gemini.files.upload(
-                                file=audio_stream,
-                                config=types.UploadFileConfig(mime_type=mime_type)
-                            )
-                            for _ in range(60):
-                                file_info = client_gemini.files.get(name=uploaded_file_obj.name)
-                                if file_info.state.name == "ACTIVE":
-                                    break
-                                time.sleep(1)
-                                
-                            response, used_model_name = generate_with_model_fallback(
-                                client_gemini,
-                                [uploaded_file_obj, prompt_text],
-                                gen_config
-                            )
-                        finally:
-                            if uploaded_file_obj:
-                                try:
-                                    client_gemini.files.delete(name=uploaded_file_obj.name)
-                                except Exception:
-                                    pass
-                                
-                    result_data = json.loads(response.text)
-                    st.session_state["last_processed_hash"] = current_audio_hash
-                
-                category = result_data.get("Category", "기록")
-                assignee = result_data.get("Assignee", "미지정")
-                summary = result_data.get("Summary", "")
-                details = result_data.get("Details", "")
-                due_date = result_data.get("DueDate", "").strip()
-                event_time = result_data.get("EventTime", "").strip()
-                
-                with st.spinner(f"💾 내 구글 시트 기록, 캘린더 연동 및 드라이브 자동 저장 중..."):
-                    creds = get_valid_credentials()
-                    calendar_status = add_to_google_calendar(creds, summary, assignee, details, due_date, event_time)
-                    
-                    if save_audio_toggle:
-                        drive_link = upload_audio_to_drive(creds, audio_bytes, mime_type, file_title="Long_Voice_Record" if file_size_mb > 5.0 else "Voice_Record")
-                        backup_msg = f"구글 드라이브 `{DRIVE_FOLDER_NAME}` 폴더 내 원본 저장 완료"
-                    else:
-                        drive_link = "원본 음성 저장 안 함 (텍스트만 기록)"
-                        backup_msg = "원본 음성 백업 제외 (텍스트 및 캘린더만 연동)"
-                        
-                    schedule_display = f"{due_date} {event_time}".strip()
-                    row_to_save = [current_time_str, category, assignee, summary, details, schedule_display, calendar_status, drive_link]
-                    save_record_to_sheet(creds, row_to_save)
-                    
-                    s_count, s_mins = sync_today_usage_from_sheet(today_str)
-                    st.session_state["daily_request_count"] = s_count
-                    st.session_state["daily_used_seconds"] = s_mins * 60.0
-                
-                st.success(f"✨ AI 음성 분석 및 구글 시트 저장 완료! (적용 모델: `{used_model_name}` | 오늘 누적: {s_count}회)")
-                st.markdown(f"### 📌 {summary}")
-                st.write(f"**🏷️ 카테고리:** `{category}` | **👤 담당자:** `{assignee}` | **⏰ 약속일시:** `{due_date} {event_time}`")
-                st.text_area("📝 상세 회의 주제별 다중 요약 및 전체 받아쓰기", value=details, height=260)
-                st.info(f"✅ 저장 상태: {backup_msg} | 캘린더 연동: {calendar_status}")
-                    
-            except Exception as e:
-                st.error(f"⚠️ 분석 중 오류가 발생했습니다: {e}")
-
-with tab2:
-    st.subheader("📁 내 구글 시트에 저장된 녹음 리스트 (조회 및 즉시 듣기)")
+# --- 2번 기능: 내 저장된 녹음 리스트 (아코디언 형태) ---
+with st.expander("📁 내 저장된 녹음 리스트 조회 및 바로 듣기"):
     if st.button("🔄 저장 목록 새로고침"):
         s_count, s_mins = sync_today_usage_from_sheet(today_str)
         st.session_state["daily_request_count"] = s_count
@@ -748,7 +589,7 @@ with tab2:
         all_values = sheet.get_all_values()
         
         if len(all_values) <= 1:
-            st.info("아직 저장된 녹음 기록이 없습니다. 첫 번째 탭에서 녹음을 진행해 보세요!")
+            st.info("아직 저장된 녹음 기록이 없습니다. 녹음을 먼저 진행해 보세요!")
         else:
             data_rows = all_values[1:]
             for idx, row in enumerate(reversed(data_rows)):
@@ -785,9 +626,11 @@ with tab2:
     except Exception as list_err:
         st.warning(f"목록을 불러오는 중 오류 발생: {list_err}")
 
-with tab3:
-    st.subheader("📊 최근 7일간 주간 요약 보고서 및 구글 시트 전용 페이지 자동 추가")
-    st.markdown("지인 공유 및 실무 활용을 위해 최근 7일 동안 시트에 누적된 회의/일정 데이터를 자동 집계하고, 파일 다운로드 및 구글 시트에 요약 전용 페이지를 자동 추가하여 보관합니다.")
+# --- 3번 기능: 주간 요약 보고서 (아코디언 형태 및 제목 줄바꿈 적용) ---
+with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이지 추가"):
+    # [해결 3] 제목 글자 크기를 줄이고 <br>을 적용해 두 줄로 깔끔하게 표시
+    st.markdown('<div style="font-size: 15px; font-weight: 800; color: #1e293b; line-height: 1.4; margin-bottom: 8px;">📊 최근 7일간 주간 요약 보고서 및<br>구글 시트 전용 페이지 자동 추가</div>', unsafe_allow_html=True)
+    st.markdown("<div style='font-size: 13.5px; color: #475569; margin-bottom: 12px; word-break: keep-all;'>지인 공유 및 실무 활용을 위해 최근 7일 동안 시트에 누적된 회의/일정 데이터를 자동 집계하고, 파일 다운로드 및 구글 시트에 요약 전용 페이지를 자동 추가하여 보관합니다.</div>", unsafe_allow_html=True)
     
     if st.button("📈 이번 주간 보고서 데이터 집계 및 생성하기", type="primary"):
         try:
@@ -803,7 +646,6 @@ with tab3:
                 headers = all_rows[0]
                 rows = all_rows[1:]
                 
-                # 최근 7일 필터링
                 seven_days_ago = datetime.now(KST) - timedelta(days=7)
                 recent_rows = []
                 cat_counts = {"일정": 0, "할일": 0, "아이디어": 0, "기록": 0}
@@ -822,12 +664,11 @@ with tab3:
                 st.success(f"✅ 최근 7일간 총 {len(recent_rows)}건의 기록이 집계되었습니다!")
                 
                 col1, col2, col3, col4 = st.columns(4)
-                col1.metric("📅 총 회의/기록 건수", f"{len(recent_rows)}건")
+                col1.metric("📅 총 건수", f"{len(recent_rows)}건")
                 col2.metric("📌 일정", f"{cat_counts['일정']}건")
                 col3.metric("✅ 할일", f"{cat_counts['할일']}건")
                 col4.metric("💡 아이디어/기록", f"{cat_counts['아이디어'] + cat_counts['기록']}건")
                 
-                # 요약 텍스트 생성
                 report_md = f"# [주간 요약 보고서] ({seven_days_ago.strftime('%Y-%m-%d')} ~ {datetime.now(KST).strftime('%Y-%m-%d')})\n\n"
                 report_md += f"- 총 기록 건수: {len(recent_rows)}건\n"
                 report_md += f"- 카테고리별 통계: 일정({cat_counts['일정']}), 할일({cat_counts['할일']}), 아이디어({cat_counts['아이디어']}), 기록({cat_counts['기록']})\n\n"
@@ -837,7 +678,6 @@ with tab3:
                 
                 st.text_area("📄 생성된 주간 요약 보고서 미리보기", value=report_md, height=200)
                 
-                # 방법 1: 파일 다운로드 버튼 제공
                 csv_buffer = io.StringIO()
                 import csv
                 writer = csv.writer(csv_buffer)
@@ -851,10 +691,8 @@ with tab3:
                     mime="text/csv"
                 )
                 
-                # 방법 2: 구글 시트 새 페이지(탭) 자동 추가 및 구글 드라이브 백업
                 with st.spinner("💾 구글 시트 내 주간 요약 전용 페이지 자동 추가 및 드라이브 저장 중..."):
                     try:
-                        # 시트 새 페이지(탭) 생성
                         report_sheet_name = f"주간보고서_{datetime.now(KST).strftime('%m월%d일')}"
                         try:
                             ws = spreadsheet.worksheet(report_sheet_name)
@@ -869,7 +707,6 @@ with tab3:
                             for r in recent_rows:
                                 ws.append_row(r)
                         
-                        # 드라이브 폴더에 텍스트 백업
                         drive_file_url = upload_text_to_drive(creds, report_md, f"Weekly_Report_{datetime.now(KST).strftime('%Y%m%d')}.txt")
                         
                         st.success(f"✨ 구글 시트 내 주간 요약 전용 페이지({report_sheet_name}) 자동 추가 및 구글 드라이브 저장 완료!")
@@ -880,3 +717,169 @@ with tab3:
                         
         except Exception as e:
             st.error(f"⚠️ 주간 보고서 집계 중 오류가 발생했습니다: {e}")
+
+st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True) # 음성 녹음부 분리용 실선
+
+# =====================================================================
+# [오디오 입력 및 처리부 (기존 로직 완벽 보존)]
+# =====================================================================
+audio_bytes = None
+should_process = False
+
+if input_method == "실시간 녹음":
+    st.markdown(
+        f"""
+        <div class="mic-guide-card">
+            <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:8px;">🎙️ 실시간 녹음 상태 확인 안내</div>
+            <div style="font-size:14px; color:#374151; line-height:1.85;">
+                • 아래 녹음 박스 왼쪽의 {BLACK_MIC_BADGE} <b>마이크 아이콘</b>을 클릭하면 ➡️ 즉시 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 아이콘(녹음중)</b> 상태로 변합니다.<br>
+                • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">정지 아이콘</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    
+    recorded_file = st.audio_input("👇 아래 왼쪽의 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
+    if recorded_file is not None:
+        audio_bytes = recorded_file.getvalue()
+        
+    current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
+    if audio_bytes is not None and current_audio_hash != st.session_state["last_processed_hash"]:
+        should_process = True
+
+else:
+    st.markdown(
+        """
+        <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #3b82f6; border-radius:12px; padding:15px 18px; margin-top:8px; margin-bottom:14px; word-break:keep-all;">
+            <div style="font-size:15px; font-weight:800; color:#1e3a8a; margin-bottom:6px;">📂 녹음 파일 업로드 및 변환 방법 (30분 이상 장시간 녹음 지원)</div>
+            <div style="font-size:14px; color:#334155; line-height:1.7;">
+                1. 아래 <b>[Browse files]</b> 버튼을 눌러 휴대폰이나 PC에 저장된 대용량 음성 파일(mp3, wav, m4a)을 선택하세요.<br>
+                2. 파일이 첨부되면 아래에 나타나는 <b>[🚀 업로드한 파일 변환 및 저장 실행]</b> 버튼을 클릭하세요.
+            </div>
+        </div>
+        """,
+        unsafe_allow_html=True
+    )
+    uploaded_file = st.file_uploader("변환할 음성 파일을 선택하세요 (mp3, wav, m4a)", type=["mp3", "wav", "m4a"])
+    if uploaded_file:
+        audio_bytes = uploaded_file.read()
+        ext = uploaded_file.name.split(".")[-1].lower()
+        mime_map = {"mp3": "audio/mp3", "m4a": "audio/mp4", "wav": "audio/wav"}
+        mime_type = mime_map.get(ext, "audio/wav")
+        st.audio(audio_bytes, format=mime_type)
+        
+    current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
+    if st.button("🚀 업로드한 파일 변환 및 저장 실행", type="primary", use_container_width=True):
+        should_process = True
+
+if should_process:
+    if not user_api_key:
+        st.warning("⚠️ 상단에 본인의 무료 Gemini API 키를 먼저 등록해 주세요.")
+    elif not audio_bytes or len(audio_bytes) < 100:
+        st.warning("⚠️ 분석할 음성 데이터가 없거나 너무 짧습니다. 다시 녹음하거나 파일을 선택해 주세요.")
+    elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS:
+        st.error(f"🛑 오늘의 무료 사용 안전 한도({DAILY_FREE_LIMIT_MINUTES}분 또는 {DAILY_FREE_LIMIT_REQUESTS}회)를 모두 소진했습니다.")
+    else:
+        file_size_mb = len(audio_bytes) / (1024 * 1024)
+        try:
+            now = datetime.now(KST)
+            current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
+            weekday_korean = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][now.weekday()]
+            
+            prompt_text = build_gemini_prompt(current_time_str, weekday_korean, today_str)
+            active_timeout_ms = SHORT_AUDIO_TIMEOUT_MS if file_size_mb <= 5.0 else LONG_AUDIO_TIMEOUT_MS
+            client_gemini = genai.Client(
+                api_key=user_api_key.strip(),
+                http_options=types.HttpOptions(timeout=active_timeout_ms)
+            )
+            
+            json_schema = types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "Category": types.Schema(type=types.Type.STRING),
+                    "Assignee": types.Schema(type=types.Type.STRING),
+                    "Summary": types.Schema(type=types.Type.STRING),
+                    "Details": types.Schema(type=types.Type.STRING),
+                    "DueDate": types.Schema(type=types.Type.STRING),
+                    "EventTime": types.Schema(type=types.Type.STRING),
+                },
+                required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"]
+            )
+            gen_config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=json_schema,
+                temperature=0.1
+            )
+            
+            spinner_msg = "⚡ 초고속 Gemini AI가 장시간 녹음을 정밀 다중 요약 중입니다..." if file_size_mb > 5.0 else "⚡ 최신 Gemini AI가 음성을 정밀 분석 중입니다..."
+            with st.spinner(spinner_msg):
+                if file_size_mb <= INLINE_LIMIT_MB:
+                    response, used_model_name = generate_with_model_fallback(
+                        client_gemini,
+                        [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt_text],
+                        gen_config
+                    )
+                else:
+                    uploaded_file_obj = None
+                    try:
+                        audio_stream = io.BytesIO(audio_bytes)
+                        uploaded_file_obj = client_gemini.files.upload(
+                            file=audio_stream,
+                            config=types.UploadFileConfig(mime_type=mime_type)
+                        )
+                        for _ in range(60):
+                            file_info = client_gemini.files.get(name=uploaded_file_obj.name)
+                            if file_info.state.name == "ACTIVE":
+                                break
+                            time.sleep(1)
+                            
+                        response, used_model_name = generate_with_model_fallback(
+                            client_gemini,
+                            [uploaded_file_obj, prompt_text],
+                            gen_config
+                        )
+                    finally:
+                        if uploaded_file_obj:
+                            try:
+                                client_gemini.files.delete(name=uploaded_file_obj.name)
+                            except Exception:
+                                pass
+                            
+                result_data = json.loads(response.text)
+                st.session_state["last_processed_hash"] = current_audio_hash
+            
+            category = result_data.get("Category", "기록")
+            assignee = result_data.get("Assignee", "미지정")
+            summary = result_data.get("Summary", "")
+            details = result_data.get("Details", "")
+            due_date = result_data.get("DueDate", "").strip()
+            event_time = result_data.get("EventTime", "").strip()
+            
+            with st.spinner(f"💾 내 구글 시트 기록, 캘린더 연동 및 드라이브 자동 저장 중..."):
+                creds = get_valid_credentials()
+                calendar_status = add_to_google_calendar(creds, summary, assignee, details, due_date, event_time)
+                
+                if save_audio_toggle:
+                    drive_link = upload_audio_to_drive(creds, audio_bytes, mime_type, file_title="Long_Voice_Record" if file_size_mb > 5.0 else "Voice_Record")
+                    backup_msg = f"구글 드라이브 `{DRIVE_FOLDER_NAME}` 폴더 내 원본 저장 완료"
+                else:
+                    drive_link = "원본 음성 저장 안 함 (텍스트만 기록)"
+                    backup_msg = "원본 음성 백업 제외 (텍스트 및 캘린더만 연동)"
+                    
+                schedule_display = f"{due_date} {event_time}".strip()
+                row_to_save = [current_time_str, category, assignee, summary, details, schedule_display, calendar_status, drive_link]
+                save_record_to_sheet(creds, row_to_save)
+                
+                s_count, s_mins = sync_today_usage_from_sheet(today_str)
+                st.session_state["daily_request_count"] = s_count
+                st.session_state["daily_used_seconds"] = s_mins * 60.0
+            
+            st.success(f"✨ AI 음성 분석 및 구글 시트 저장 완료! (적용 모델: `{used_model_name}` | 오늘 누적: {s_count}회)")
+            st.markdown(f"### 📌 {summary}")
+            st.write(f"**🏷️ 카테고리:** `{category}` | **👤 담당자:** `{assignee}` | **⏰ 약속일시:** `{due_date} {event_time}`")
+            st.text_area("📝 상세 회의 주제별 다중 요약 및 전체 받아쓰기", value=details, height=260)
+            st.info(f"✅ 저장 상태: {backup_msg} | 캘린더 연동: {calendar_status}")
+                
+        except Exception as e:
+            st.error(f"⚠️ 분석 중 오류가 발생했습니다: {e}")
