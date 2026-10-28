@@ -5,6 +5,7 @@ import re
 import time
 import hashlib
 import base64
+import csv
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 import gspread
@@ -16,11 +17,12 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 설정
+# [사용자 수정 가능 변수 구역 1] 기본 환경 설정 (기존 코드 100% 보존 + 버튼명 추가)
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 음성 원본 녹음 여부 (체크를 하게 되면 음성원본이 저장됩니다)"
+ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
@@ -45,6 +47,8 @@ DAILY_FREE_LIMIT_REQUESTS = 500
 TOKENS_PER_SECOND = 32
 INLINE_LIMIT_MB = 18
 
+IMAGE_UPLOAD_TYPES = ["png", "jpg", "jpeg", "webp"]
+
 SHEET_HEADERS = [
     "등록일시", "카테고리", "담당자", "요약(큰타이틀)", 
     "상세내용(주제별정리/전체녹음)", "약속일시", "캘린더등록", "음성링크"
@@ -55,41 +59,48 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 2] AI 프롬프트
+# [사용자 수정 가능 변수 구역 2] AI 프롬프트 (사건일시 분리 + Q&A 문답 + 이미지 사양 통합)
 # =====================================================================
-def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
+def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_image=False):
+    image_instruction = ""
+    if has_image:
+        image_instruction = """
+       - [첨부 사진/이미지 판독 및 사양 기록]: 함께 첨부된 사진이나 이미지(제품 사진, 사양서, 화이트보드 필기, 서류 등)에 나타난 텍스트, 표, 수치, 제품 사양 및 시각적 특징을 정밀하게 판독하여 음성 내용과 함께 [파트 1]에 상세히 통합 기록해.
+        """
+
     prompt = f"""
     현재 대한민국 기준 시각은 {current_time_str} ({weekday_korean})이야.
-    첨부된 음성(30분 이상의 장시간 회의 또는 메모 포함)을 끝까지 주의 깊게 듣고, 아래 규칙에 맞춰 반드시 JSON 형식으로만 출력해 줘.
+    첨부된 음성(30분 이상의 장시간 회의, 상담, 경찰 조사, 여론조사 또는 메모 포함){'과 첨부된 사진/이미지' if has_image else ''}를 끝까지 주의 깊게 확인하고, 아래 규칙에 맞춰 반드시 JSON 형식으로만 출력해 줘.
 
     [작성 및 분류 상세 규칙]
     1. Category (카테고리 분류):
        - 반드시 '일정', '할일', '아이디어', '기록' 중 딱 하나로만 분류해.
-    2. Assignee (담당자 추출):
-       - 음성에서 언급된 담당자 이름, 직급, 업체명 또는 부서를 추출해. 없으면 '미지정'.
+    2. Assignee (담당자/대상자 추출):
+       - 음성에서 언급된 담당자 이름, 직급, 업체명, 부서 또는 조사 대상자/응답자를 추출해. 없으면 '미지정'.
     3. Summary (오늘 날짜 + 큰 회의 타이틀):
        - 전체 내용을 대표하는 핵심 제목을 한 줄로 작성하되, 맨 앞에 오늘 날짜([{today_date_str}])를 붙여줘.
-    4. Details (장시간 녹음 다중 요약 및 전체 받아쓰기):
+    4. Details (장시간 녹음 다중 요약, 조사 문답 Q&A 및 전체 받아쓰기):
        - 녹음 파일이 길 경우(30분 이상), 내용을 시간대별이나 세부 주제별로 나누어 [파트 1], [파트 2] 형태로 체계적으로 다중 요약해.
-       - [파트 1: 상세 회의 주제별 다중 요약] 논의된 안건들을 시간 흐름 및 주제별로 구분하여 핵심 정리.
+       - [파트 1: 상세 주제별 다중 요약 및 문답(Q&A) 정리] 논의된 안건들을 시간 흐름 및 주제별로 구분하여 핵심 정리. 특히 경찰 사건 조사나 여론조사/상담처럼 두 사람 이상의 질의응답이 포함된 경우, 누가 어떤 질문(Q)을 했고 어떻게 답변(A)했는지 '질문(Q)과 답변(A)' 구조로 명확히 분리하여 요약할 것. 진술 속 과거 사건 발생 일시는 이곳에 정확히 기록할 것.{image_instruction}
        - [파트 2: 전체 녹음 원본 받아쓰기] 처음부터 끝까지 단 한 문장도 누락 없이 전체 받아쓰기(STT) 기재.
-    5. DueDate & EventTime:
-       - 약속 날짜(YYYY-MM-DD)와 시간(HH:MM, 24시간제) 추출. 없으면 빈칸("").
+    5. DueDate & EventTime (사건 발생 일시와 실제 스케줄/약속의 명확한 구분):
+       - [매우 중요] 과거의 사건 발생 시각이나 진술 속에 등장하는 참고 날짜/시간은 구글 캘린더 등록용 날짜(DueDate, EventTime)에서 철저히 제외할 것!
+       - 오직 현재 시각({current_time_str}) 이후로 향후 예정된 출석 요구일, 다음 미팅 약속, 마감 기한 등 실제 미래 스케줄만 날짜(YYYY-MM-DD)와 시간(HH:MM, 24시간제)으로 추출해. 미래 약속이 없으면 반드시 빈칸("")으로 비워둘 것.
 
     [출력 JSON 규격]
     {{
         "Category": "일정, 할일, 아이디어, 기록 중 하나",
         "Assignee": "담당자 이름/업체명 (없으면 '미지정')",
-        "Summary": "[{today_date_str}] 전체 회의를 관통하는 큰 타이틀 요약",
-        "Details": "[파트 1: 상세 회의 주제별 다중 요약]\\n- 파트 1: ...\\n- 파트 2: ...\\n\\n[파트 2: 전체 녹음 원본 받아쓰기]\\n(전체 받아쓰기 내용 기재)",
-        "DueDate": "YYYY-MM-DD (없으면 빈칸)",
-        "EventTime": "HH:MM (없으면 빈칸)"
+        "Summary": "[{today_date_str}] 전체 내용을 관통하는 큰 타이틀 요약",
+        "Details": "[파트 1: 상세 주제별 다중 요약 및 문답(Q&A) / 이미지 사양 정리]\\n- 핵심 요약: ...\\n- 문답(Q&A): Q. ... / A. ...\\n\\n[파트 2: 전체 녹음 원본 받아쓰기]\\n(전체 받아쓰기 내용 기재)",
+        "DueDate": "YYYY-MM-DD (과거 사건일시는 제외하고 실제 미래 약속만 기재, 없으면 빈칸)",
+        "EventTime": "HH:MM (실제 미래 약속 시간만 기재, 없으면 빈칸)"
     }}
     """
     return prompt
 
 # =====================================================================
-# [UI 디자인: CSS 적용]
+# [UI 디자인: 검증 완료된 CSS 100% 보존]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -128,24 +139,9 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
-
-if "init_cookie_check" not in st.session_state:
-    st.session_state["init_cookie_check"] = True
-    st.markdown(
-        """
-        <div style="text-align: center; padding-top: 60px;">
-            <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
-            <div style="font-size: 18px; font-weight: 800; color: #1e293b;">안전한 통신을 위해 보안 인증 상태를 확인하고 있습니다...</div>
-            <div style="font-size: 14px; color: #64748b; margin-top: 5px;">잠시만 기다려주세요 (약 1초 소요)</div>
-        </div>
-        """, 
-        unsafe_allow_html=True
-    )
-    time.sleep(0.7)
-    st.rerun()
-
 all_cookies = cookie_manager.get_all()
 
+# --- [1단계] 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -255,6 +251,7 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
+# --- 로그인 화면 깜빡임 원천 차단 로직 (단일 딜레이로 최적화하여 멈춤 방지) ---
 if "credentials" not in st.session_state:
     if "code" in st.query_params or "rt" in st.query_params:
         st.markdown("<div style='text-align: center; padding-top: 60px;'><div style='font-size: 40px; margin-bottom: 15px;'>⏳</div><div style='font-size: 18px; font-weight: 800; color: #1e293b;'>구글 계정 연동 중입니다...</div></div>", unsafe_allow_html=True)
@@ -272,7 +269,7 @@ if "credentials" not in st.session_state:
             """, 
             unsafe_allow_html=True
         )
-        time.sleep(1.5)
+        time.sleep(1.2)
         st.rerun()
 
     if len(flow_store) > 100:
@@ -575,6 +572,9 @@ user_api_key = st.session_state["saved_api_key"]
 BLACK_MIC_BADGE = '<span class="inline-mic-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span class="inline-stop-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
 
+# =====================================================================
+# [기존 수직형 아코디언 메뉴 100% 보존]
+# =====================================================================
 input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
 save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
@@ -682,7 +682,6 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
                 st.text_area("📄 생성된 주간 요약 보고서 미리보기", value=report_md, height=200)
                 
                 csv_buffer = io.StringIO()
-                import csv
                 writer = csv.writer(csv_buffer)
                 writer.writerow(headers)
                 writer.writerows(recent_rows)
@@ -713,7 +712,7 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
                         drive_file_url = upload_text_to_drive(creds, report_md, f"Weekly_Report_{datetime.now(KST).strftime('%Y%m%d')}.txt")
                         
                         st.success(f"✨ 구글 시트 내 주간 요약 전용 페이지({report_sheet_name}) 자동 추가 및 구글 드라이브 저장 완료!")
-                        if drive_link:
+                        if drive_file_url:
                             st.markdown(f"🔗 [구글 드라이브 보관함에서 주간 보고서 파일 확인하기]({drive_file_url})")
                     except Exception as archive_err:
                         st.warning(f"⚠️ 저장 중 일부 오류 발생: {archive_err}")
@@ -724,42 +723,41 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
 st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
 
 # =====================================================================
-# [오디오 입력 및 처리부 (기존 로직 완벽 보존)]
+# [투스텝(Two-Step) 오디오 + 사진/카메라 멀티모달 입력 및 분석실행하기]
 # =====================================================================
 audio_bytes = None
 mime_type = "audio/wav"
-should_process = False
 
+# --- [Step 1] 음성 녹음 또는 오디오 파일 업로드 (임시 대기) ---
 if input_method == "실시간 녹음":
     st.markdown(
         f"""
         <div class="mic-guide-card">
-            <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:8px;">🎙️ 실시간 녹음 상태 확인 안내</div>
+            <div style="font-size:15px; font-weight:800; color:#000000; margin-bottom:8px;">🎙️ [1단계] 실시간 녹음 진행 안내 (투스텝 대기 방식)</div>
             <div style="font-size:14px; color:#374151; line-height:1.85;">
                 • 아래 녹음 박스 왼쪽의 {BLACK_MIC_BADGE} <b>마이크 아이콘</b>을 클릭하면 ➡️ 즉시 {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지 아이콘(녹음중)</b> 상태로 변합니다.<br>
-                • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">정지 아이콘</b>을 다시 클릭하면 ➡️ <b>녹음이 종료되며 즉시 자동 변환</b>됩니다!
+                • 말씀을 마친 후 {RED_STOP_BADGE} <b style="color:#ef4444;">정지 아이콘</b>을 누르면 녹음본이 안전하게 대기합니다.<br>
+                • 사진 첨부가 필요 없으면 바로 아래의 <b>[{ANALYZE_BUTTON_LABEL}]</b> 버튼을 누르시고, 회의/상담 사진이 있다면 사진을 첨부한 뒤 버튼을 눌러주세요!
             </div>
         </div>
         """,
         unsafe_allow_html=True
     )
     
-    recorded_file = st.audio_input("👇 아래 왼쪽의 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요 (정지 클릭 시 자동 변환)")
+    recorded_file = st.audio_input("👇 아래 왼쪽의 마이크 아이콘(🎙️)을 눌러 녹음을 시작하세요")
     if recorded_file is not None:
         audio_bytes = recorded_file.getvalue()
-        
-    current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
-    if audio_bytes is not None and current_audio_hash != st.session_state["last_processed_hash"]:
-        should_process = True
+        mime_type = "audio/wav"
+        st.info("✅ 녹음본이 준비되었습니다! 사진을 추가로 첨부하거나 아래의 [🚀 분석실행하기] 버튼을 눌러주세요.")
 
 else:
     st.markdown(
-        """
+        f"""
         <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #3b82f6; border-radius:12px; padding:15px 18px; margin-top:8px; margin-bottom:14px; word-break:keep-all;">
-            <div style="font-size:15px; font-weight:800; color:#1e3a8a; margin-bottom:6px;">📂 녹음 파일 업로드 및 변환 방법 (30분 이상 장시간 녹음 지원)</div>
+            <div style="font-size:15px; font-weight:800; color:#1e3a8a; margin-bottom:6px;">📂 [1단계] 녹음 파일 업로드 방법 (30분 이상 장시간 녹음 지원)</div>
             <div style="font-size:14px; color:#334155; line-height:1.7;">
                 1. 아래 <b>[Browse files]</b> 버튼을 눌러 휴대폰이나 PC에 저장된 대용량 음성 파일(mp3, wav, m4a)을 선택하세요.<br>
-                2. 파일이 첨부되면 아래에 나타나는 <b>[🚀 업로드한 파일 변환 및 저장 실행]</b> 버튼을 클릭하세요.
+                2. 필요 시 아래에서 사진/이미지를 추가 첨부한 뒤 <b>[{ANALYZE_BUTTON_LABEL}]</b> 버튼을 클릭하세요.
             </div>
         </div>
         """,
@@ -772,27 +770,67 @@ else:
         mime_map = {"mp3": "audio/mp3", "m4a": "audio/mp4", "wav": "audio/wav"}
         mime_type = mime_map.get(ext, "audio/wav")
         st.audio(audio_bytes, format=mime_type)
-        
-    current_audio_hash = hashlib.md5(audio_bytes).hexdigest() if audio_bytes else None
-    if st.button("🚀 업로드한 파일 변환 및 저장 실행", type="primary", use_container_width=True):
-        should_process = True
+        st.info("✅ 음성 파일이 준비되었습니다! 사진을 추가로 첨부하거나 아래의 [🚀 분석실행하기] 버튼을 눌러주세요.")
 
-if should_process:
+# --- [Step 2] 선택적 사진/이미지 파일 첨부 및 카메라 촬영 ---
+image_bytes = None
+image_mime_type = "image/jpeg"
+
+st.markdown(
+    """
+    <div style="background:#f8fafc; border:1px solid #cbd5e1; border-left:5px solid #10b981; border-radius:12px; padding:14px 16px; margin-top:12px; margin-bottom:12px; word-break:keep-all;">
+        <div style="font-size:15px; font-weight:800; color:#065f46; margin-bottom:4px;">📸 [2단계] 사진/이미지 추가 첨부 (선택 사항)</div>
+        <div style="font-size:13.5px; color:#334155; line-height:1.6;">
+            회의 중 생성된 자료, 제품 사양서, 화이트보드 필기 등이 있다면 <b>파일 첨부</b> 또는 <b>카메라 촬영</b>을 선택해 추가하세요. (없으면 바로 <b>분석실행하기</b>를 누르세요)
+        </div>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+img_input_mode = st.radio(
+    "사진 첨부 방식을 선택하세요:",
+    ["첨부 안 함 (음성만 분석)", "📁 사진/이미지 파일 첨부", "📸 카메라로 직접 촬영"],
+    horizontal=True
+)
+
+if img_input_mode == "📁 사진/이미지 파일 첨부":
+    uploaded_img = st.file_uploader("함께 분석할 사진이나 이미지를 선택하세요 (png, jpg, jpeg, webp)", type=IMAGE_UPLOAD_TYPES)
+    if uploaded_img is not None:
+        image_bytes = uploaded_img.getvalue()
+        img_ext = uploaded_img.name.split(".")[-1].lower()
+        img_mime_map = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}
+        image_mime_type = img_mime_map.get(img_ext, "image/jpeg")
+        st.image(image_bytes, caption="✅ 첨부된 이미지 미리보기 (음성과 함께 사양/내용이 통합 분석됩니다)", use_container_width=True)
+
+elif img_input_mode == "📸 카메라로 직접 촬영":
+    camera_img = st.camera_input("카메라로 제품 사양이나 회의 자료를 촬영하세요")
+    if camera_img is not None:
+        image_bytes = camera_img.getvalue()
+        image_mime_type = "image/jpeg"
+        st.success("✅ 촬영된 사진이 준비되었습니다! 아래 [🚀 분석실행하기] 버튼을 누르면 음성과 함께 통합 분석됩니다.")
+
+# --- [Step 3] 통합 '분석실행하기' 버튼 클릭 시 실행 ---
+st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
+
+if analyze_clicked:
     if not user_api_key:
         st.warning("⚠️ 상단에 본인의 무료 Gemini API 키를 먼저 등록해 주세요.")
     elif not audio_bytes or len(audio_bytes) < 100:
-        st.warning("⚠️ 분석할 음성 데이터가 없거나 너무 짧습니다. 다시 녹음하거나 파일을 선택해 주세요.")
+        st.warning("⚠️ 분석할 음성 데이터가 없습니다. 먼저 1단계에서 실시간 녹음을 완료하거나 음성 파일을 업로드해 주세요.")
     elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS:
         st.error(f"🛑 오늘의 무료 사용 안전 한도({DAILY_FREE_LIMIT_MINUTES}분 또는 {DAILY_FREE_LIMIT_REQUESTS}회)를 모두 소진했습니다.")
     else:
         file_size_mb = len(audio_bytes) / (1024 * 1024)
+        has_image_flag = image_bytes is not None
         try:
             now = datetime.now(KST)
             current_time_str = now.strftime("%Y-%m-%d %H:%M:%S")
             weekday_korean = ["월요일", "화요일", "수요일", "목요일", "금요일", "토요일", "일요일"][now.weekday()]
             
-            prompt_text = build_gemini_prompt(current_time_str, weekday_korean, today_str)
-            active_timeout_ms = SHORT_AUDIO_TIMEOUT_MS if file_size_mb <= 5.0 else LONG_AUDIO_TIMEOUT_MS
+            prompt_text = build_gemini_prompt(current_time_str, weekday_korean, today_str, has_image=has_image_flag)
+            active_timeout_ms = SHORT_AUDIO_TIMEOUT_MS if (file_size_mb <= 5.0 and not has_image_flag) else LONG_AUDIO_TIMEOUT_MS
             client_gemini = genai.Client(
                 api_key=user_api_key.strip(),
                 http_options=types.HttpOptions(timeout=active_timeout_ms)
@@ -816,12 +854,23 @@ if should_process:
                 temperature=0.1
             )
             
-            spinner_msg = "⚡ 초고속 Gemini AI가 장시간 녹음을 정밀 다중 요약 중입니다..." if file_size_mb > 5.0 else "⚡ 최신 Gemini AI가 음성을 정밀 분석 중입니다..."
+            if has_image_flag:
+                spinner_msg = "⚡ 최신 Gemini 멀티모달 AI가 음성과 사진(사양/텍스트)을 동시에 정밀 분석 중입니다..."
+            elif file_size_mb > 5.0:
+                spinner_msg = "⚡ 초고속 Gemini AI가 장시간 녹음을 정밀 다중 요약 중입니다..."
+            else:
+                spinner_msg = "⚡ 최신 Gemini AI가 음성을 정밀 분석 중입니다..."
+
             with st.spinner(spinner_msg):
                 if file_size_mb <= INLINE_LIMIT_MB:
+                    payload_list = [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)]
+                    if has_image_flag:
+                        payload_list.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
+                    payload_list.append(prompt_text)
+                    
                     response, used_model_name = generate_with_model_fallback(
                         client_gemini,
-                        [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type), prompt_text],
+                        payload_list,
                         gen_config
                     )
                 else:
@@ -838,9 +887,14 @@ if should_process:
                                 break
                             time.sleep(1)
                             
+                        payload_list = [uploaded_file_obj]
+                        if has_image_flag:
+                            payload_list.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
+                        payload_list.append(prompt_text)
+                        
                         response, used_model_name = generate_with_model_fallback(
                             client_gemini,
-                            [uploaded_file_obj, prompt_text],
+                            payload_list,
                             gen_config
                         )
                     finally:
@@ -851,6 +905,7 @@ if should_process:
                                 pass
                             
                 result_data = json.loads(response.text)
+                current_audio_hash = hashlib.md5(audio_bytes).hexdigest()
                 st.session_state["last_processed_hash"] = current_audio_hash
             
             category = result_data.get("Category", "기록")
@@ -879,10 +934,10 @@ if should_process:
                 st.session_state["daily_request_count"] = s_count
                 st.session_state["daily_used_seconds"] = s_mins * 60.0
             
-            st.success(f"✨ AI 음성 분석 및 구글 시트 저장 완료! (적용 모델: `{used_model_name}` | 오늘 누적: {s_count}회)")
+            st.success(f"✨ AI 분석 및 구글 시트 저장 완료! (적용 모델: `{used_model_name}` | 오늘 누적: {s_count}회)")
             st.markdown(f"### 📌 {summary}")
-            st.write(f"**🏷️ 카테고리:** `{category}` | **👤 담당자:** `{assignee}` | **⏰ 약속일시:** `{due_date} {event_time}`")
-            st.text_area("📝 상세 회의 주제별 다중 요약 및 전체 받아쓰기", value=details, height=260)
+            st.write(f"**🏷️ 카테고리:** `{category}` | **👤 담당자:** `{assignee}` | **⏰ 약속일시(미래 일정):** `{due_date} {event_time}`")
+            st.text_area("📝 상세 주제별 다중 요약 / 문답(Q&A) / 이미지 사양 및 전체 받아쓰기", value=details, height=280)
             st.info(f"✅ 저장 상태: {backup_msg} | 캘린더 연동: {calendar_status}")
                 
         except Exception as e:
