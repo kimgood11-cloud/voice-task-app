@@ -16,7 +16,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 설정 (기존 코드 100% 보존)
+# [사용자 수정 가능 변수 구역 1] 기본 환경 설정
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -55,7 +55,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 2] AI 프롬프트 (기존 코드 100% 보존)
+# [사용자 수정 가능 변수 구역 2] AI 프롬프트
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str):
     prompt = f"""
@@ -128,9 +128,24 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
+
+if "init_cookie_check" not in st.session_state:
+    st.session_state["init_cookie_check"] = True
+    st.markdown(
+        """
+        <div style="text-align: center; padding-top: 60px;">
+            <div style="font-size: 40px; margin-bottom: 15px;">⏳</div>
+            <div style="font-size: 18px; font-weight: 800; color: #1e293b;">안전한 통신을 위해 보안 인증 상태를 확인하고 있습니다...</div>
+            <div style="font-size: 14px; color: #64748b; margin-top: 5px;">잠시만 기다려주세요 (약 1초 소요)</div>
+        </div>
+        """, 
+        unsafe_allow_html=True
+    )
+    time.sleep(0.7)
+    st.rerun()
+
 all_cookies = cookie_manager.get_all()
 
-# --- [1단계] 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -240,16 +255,11 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         except Exception:
             pass
 
-# =====================================================================
-# [해결 1] 로그인 화면 깜빡임 원천 차단 (최종 렌더링 직전 강제 딜레이)
-# =====================================================================
 if "credentials" not in st.session_state:
-    # URL에 처리 중인 코드가 있다면 로그인 화면 표시 금지
     if "code" in st.query_params or "rt" in st.query_params:
         st.markdown("<div style='text-align: center; padding-top: 60px;'><div style='font-size: 40px; margin-bottom: 15px;'>⏳</div><div style='font-size: 18px; font-weight: 800; color: #1e293b;'>구글 계정 연동 중입니다...</div></div>", unsafe_allow_html=True)
         st.stop()
         
-    # 쿠키를 불러오는 찰나의 순간(깜빡임)을 막기 위해 1.5초간 안전 대기
     if "login_delay_done" not in st.session_state:
         st.session_state["login_delay_done"] = True
         st.markdown(
@@ -265,7 +275,6 @@ if "credentials" not in st.session_state:
         time.sleep(1.5)
         st.rerun()
 
-    # 1.5초 대기 후에도 인증 정보가 없다면 진짜 로그인 전 화면 표시
     if len(flow_store) > 100:
         flow_store.clear()
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
@@ -566,15 +575,11 @@ user_api_key = st.session_state["saved_api_key"]
 BLACK_MIC_BADGE = '<span class="inline-mic-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span class="inline-stop-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
 
-# =====================================================================
-# [해결 2] 탭(Tab) 구조 완전 삭제 및 아코디언(Expander) 메뉴 세로 배치
-# =====================================================================
 input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
 save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
-st.markdown("<br>", unsafe_allow_html=True) # 여백 추가
+st.markdown("<br>", unsafe_allow_html=True)
 
-# --- 2번 기능: 내 저장된 녹음 리스트 (아코디언 형태) ---
 with st.expander("📁 내 저장된 녹음 리스트 조회 및 바로 듣기"):
     if st.button("🔄 저장 목록 새로고침"):
         s_count, s_mins = sync_today_usage_from_sheet(today_str)
@@ -626,9 +631,7 @@ with st.expander("📁 내 저장된 녹음 리스트 조회 및 바로 듣기")
     except Exception as list_err:
         st.warning(f"목록을 불러오는 중 오류 발생: {list_err}")
 
-# --- 3번 기능: 주간 요약 보고서 (아코디언 형태 및 제목 줄바꿈 적용) ---
 with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이지 추가"):
-    # [해결 3] 제목 글자 크기를 줄이고 <br>을 적용해 두 줄로 깔끔하게 표시
     st.markdown('<div style="font-size: 15px; font-weight: 800; color: #1e293b; line-height: 1.4; margin-bottom: 8px;">📊 최근 7일간 주간 요약 보고서 및<br>구글 시트 전용 페이지 자동 추가</div>', unsafe_allow_html=True)
     st.markdown("<div style='font-size: 13.5px; color: #475569; margin-bottom: 12px; word-break: keep-all;'>지인 공유 및 실무 활용을 위해 최근 7일 동안 시트에 누적된 회의/일정 데이터를 자동 집계하고, 파일 다운로드 및 구글 시트에 요약 전용 페이지를 자동 추가하여 보관합니다.</div>", unsafe_allow_html=True)
     
@@ -718,12 +721,13 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
         except Exception as e:
             st.error(f"⚠️ 주간 보고서 집계 중 오류가 발생했습니다: {e}")
 
-st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True) # 음성 녹음부 분리용 실선
+st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
 
 # =====================================================================
 # [오디오 입력 및 처리부 (기존 로직 완벽 보존)]
 # =====================================================================
 audio_bytes = None
+mime_type = "audio/wav"
 should_process = False
 
 if input_method == "실시간 녹음":
