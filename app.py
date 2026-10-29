@@ -17,7 +17,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 설정 (기존 코드 100% 보존 + 버튼명 추가)
+# [사용자 수정 가능 변수 구역 1] 기본 환경 설정 (기존 코드 100% 보존)
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -26,6 +26,7 @@ ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
+CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 
 GEMINI_MODEL_CANDIDATES = [
@@ -236,22 +237,54 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
             if "rt" in st.query_params:
                 del st.query_params["rt"]
 
-if "saved_api_key" not in st.session_state:
-    st.session_state["saved_api_key"] = ""
-
-if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
-    existing_cookies = all_cookies or {}
-    encoded_ak = existing_cookies.get("voice_ak", "") or st.query_params.get("ak", "")
-    if encoded_ak:
+def get_valid_credentials():
+    creds = st.session_state["credentials"]
+    if creds and creds.expired and creds.refresh_token:
         try:
-            decoded_key = base64.b64decode(encoded_ak.encode()).decode()
-            st.session_state["saved_api_key"] = decoded_key
-            if "ak" not in st.query_params:
-                st.query_params["ak"] = encoded_ak
+            creds.refresh(Request())
+            st.session_state["credentials"] = creds
         except Exception:
             pass
+    return creds
 
-# --- 로그인 화면 깜빡임 원천 차단 로직 (단일 딜레이로 최적화하여 멈춤 방지) ---
+# =====================================================================
+# [신규 추가] 구글 시트 숨김 금고(_App_Config_) 연동 API 키 영구 보존 함수
+# =====================================================================
+def save_api_key_to_sheet(creds, encoded_key):
+    """사용자의 구글 시트 내 숨김 탭(_App_Config_)에 암호화된 API 키를 영구 보관합니다."""
+    try:
+        client_gspread = gspread.authorize(creds)
+        try:
+            spreadsheet = client_gspread.open(SHEET_NAME)
+        except gspread.exceptions.SpreadsheetNotFound:
+            spreadsheet = client_gspread.create(SHEET_NAME)
+            sheet1 = spreadsheet.sheet1
+            sheet1.append_row(SHEET_HEADERS)
+            
+        try:
+            ws = spreadsheet.worksheet(CONFIG_SHEET_TAB)
+        except gspread.exceptions.WorksheetNotFound:
+            ws = spreadsheet.add_worksheet(title=CONFIG_SHEET_TAB, rows=10, cols=2)
+            try:
+                ws.hide() # 시트 화면에서 탭이 보이지 않도록 보안 숨김 처리
+            except Exception:
+                pass
+        ws.update(range_name="A1:B1", values=[["GEMINI_API_KEY", encoded_key]])
+    except Exception:
+        pass
+
+def load_api_key_from_sheet(creds):
+    """쿠키가 지워졌을 때 사용자의 구글 시트 숨김 탭(_App_Config_)에서 API 키를 자동 복구합니다."""
+    try:
+        client_gspread = gspread.authorize(creds)
+        spreadsheet = client_gspread.open(SHEET_NAME)
+        ws = spreadsheet.worksheet(CONFIG_SHEET_TAB)
+        val = ws.acell("B1").value
+        return val if val else ""
+    except Exception:
+        return ""
+
+# --- 로그인 화면 깜빡임 원천 차단 로직 ---
 if "credentials" not in st.session_state:
     if "code" in st.query_params or "rt" in st.query_params:
         st.markdown("<div style='text-align: center; padding-top: 60px;'><div style='font-size: 40px; margin-bottom: 15px;'>⏳</div><div style='font-size: 18px; font-weight: 800; color: #1e293b;'>구글 계정 연동 중입니다...</div></div>", unsafe_allow_html=True)
@@ -298,15 +331,32 @@ if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"
     if not existing_cookies.get("voice_rt"):
         cookie_manager.set("voice_rt", st.session_state["saved_rt_encoded"], expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="reinforce_rt_cookie")
 
-def get_valid_credentials():
-    creds = st.session_state["credentials"]
-    if creds and creds.expired and creds.refresh_token:
+# =====================================================================
+# [핵심 업그레이드] 3중 금고(쿠키 + URL + 구글 시트)에서 API 키 자동 복구
+# =====================================================================
+if "saved_api_key" not in st.session_state:
+    st.session_state["saved_api_key"] = ""
+
+if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
+    existing_cookies = all_cookies or {}
+    encoded_ak = existing_cookies.get("voice_ak", "") or st.query_params.get("ak", "")
+    
+    # 1차: 브라우저 쿠키나 URL에 없으면 ➡️ 내 구글 시트(_App_Config_)에서 즉시 자동 복구!
+    if not encoded_ak and "credentials" in st.session_state and not st.session_state.get("sheet_ak_checked"):
+        st.session_state["sheet_ak_checked"] = True
+        creds = get_valid_credentials()
+        encoded_ak = load_api_key_from_sheet(creds)
+        
+    if encoded_ak:
         try:
-            creds.refresh(Request())
-            st.session_state["credentials"] = creds
+            decoded_key = base64.b64decode(encoded_ak.encode()).decode()
+            st.session_state["saved_api_key"] = decoded_key
+            if "ak" not in st.query_params:
+                st.query_params["ak"] = encoded_ak
+            if not existing_cookies.get("voice_ak"):
+                cookie_manager.set("voice_ak", encoded_ak, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="restore_ak_cookie")
         except Exception:
             pass
-    return creds
 
 def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
     if "drive_audio_folder_id" in st.session_state and st.session_state["drive_audio_folder_id"]:
@@ -427,13 +477,18 @@ def save_api_key_permanently(raw_key):
     st.session_state["key_cleared_flag"] = False
     st.query_params["ak"] = encoded_val
     cookie_manager.set("voice_ak", encoded_val, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_ak_cookie")
+    # 내 구글 시트 숨김 금고(_App_Config_)에 동시 백업하여 평생 풀림 방지
+    if "credentials" in st.session_state:
+        creds = get_valid_credentials()
+        save_api_key_to_sheet(creds, encoded_val)
+    time.sleep(0.4) # 브라우저가 쿠키를 안전하게 기록할 시간 부여
 
 @st.dialog("🔑 무료 Gemini API 키 1분 발급 절차 안내", width="large")
 def show_api_guide_modal():
     st.markdown("""
         <div style="margin-bottom: 14px; font-size: 14px; color: #475569; line-height: 1.6; word-break: keep-all;">
             AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
-            <b>(최초 1회만 등록하면 앱을 닫아도 영구 유지됩니다 / 평생 무료)</b>
+            <b>(최초 1회만 등록하면 내 구글 시트 금고에 안전하게 자동 백업되어 앱을 닫아도 평생 유지됩니다 / 평생 무료)</b>
         </div>
         <div style="margin-bottom: 14px;">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display: block; text-align: center; background: #ffffff; border: 2px solid #2563eb; color: #2563eb !important; padding: 12px 16px; border-radius: 10px; font-weight: 800; text-decoration: none !important; font-size: 14px;">
@@ -500,6 +555,9 @@ if st.session_state["saved_api_key"]:
         st.success("✅ 구글 계정 및 AI 키 영구 자동 유지 활성화됨")
     with col_key_btn:
         if st.button("🔑 API 키 변경", use_container_width=True):
+            if "credentials" in st.session_state:
+                creds = get_valid_credentials()
+                save_api_key_to_sheet(creds, "") # 변경 요청 시 시트 금고 초기화
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
             if "ak" in st.query_params:
@@ -508,6 +566,7 @@ if st.session_state["saved_api_key"]:
                 cookie_manager.delete("voice_ak", key="del_ak_cookie")
             except Exception:
                 pass
+            time.sleep(0.3)
             st.rerun()
     with col_logout:
         if st.button("🚪 로그아웃", use_container_width=True):
@@ -518,6 +577,12 @@ if st.session_state["saved_api_key"]:
             st.session_state["logged_out_flag"] = True
             st.session_state["key_cleared_flag"] = True
             st.query_params.clear()
+            try:
+                cookie_manager.delete("voice_rt", key="del_rt_cookie")
+                cookie_manager.delete("voice_ak", key="del_ak_cookie_logout")
+            except Exception:
+                pass
+            time.sleep(0.3)
             st.rerun()
 else:
     col_status, col_logout = st.columns([4, 1.2])
@@ -530,6 +595,11 @@ else:
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.query_params.clear()
+            try:
+                cookie_manager.delete("voice_rt", key="del_rt_cookie_no_ak")
+            except Exception:
+                pass
+            time.sleep(0.3)
             st.rerun()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
@@ -728,7 +798,6 @@ st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
 audio_bytes = None
 mime_type = "audio/wav"
 
-# --- [Step 1] 음성 녹음 또는 오디오 파일 업로드 (임시 대기) ---
 if input_method == "실시간 녹음":
     st.markdown(
         f"""
@@ -772,7 +841,6 @@ else:
         st.audio(audio_bytes, format=mime_type)
         st.info("✅ 음성 파일이 준비되었습니다! 사진을 추가로 첨부하거나 아래의 [🚀 분석실행하기] 버튼을 눌러주세요.")
 
-# --- [Step 2] 선택적 사진/이미지 파일 첨부 및 카메라 촬영 ---
 image_bytes = None
 image_mime_type = "image/jpeg"
 
@@ -810,7 +878,6 @@ elif img_input_mode == "📸 카메라로 직접 촬영":
         image_mime_type = "image/jpeg"
         st.success("✅ 촬영된 사진이 준비되었습니다! 아래 [🚀 분석실행하기] 버튼을 누르면 음성과 함께 통합 분석됩니다.")
 
-# --- [Step 3] 통합 '분석실행하기' 버튼 클릭 시 실행 ---
 st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
 
