@@ -17,7 +17,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 1] 기본 환경 설정 (기존 코드 100% 보존)
+# [사용자 수정 가능 변수 구역 1] 기본 환경 설정
 # =====================================================================
 APP_TITLE = "개인 맞춤형 음성 변환 자동화 시스템"
 APP_SUBTITLE = "AI 실시간 음성 요약 · 구글 시트 자동 누적 · 구글 캘린더 스마트 연동"
@@ -28,6 +28,7 @@ REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
+VAULT_FILE_NAME = "voice_api_key_vault.json"
 
 GEMINI_MODEL_CANDIDATES = [
     "gemini-flash-latest",
@@ -60,7 +61,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [사용자 수정 가능 변수 구역 2] AI 프롬프트 (사건일시 분리 + Q&A 문답 + 이미지 사양 통합)
+# [사용자 수정 가능 변수 구역 2] AI 프롬프트
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_image=False):
     image_instruction = ""
@@ -101,7 +102,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [UI 디자인: 검증 완료된 CSS 100% 보존]
+# [UI 디자인: 3D 입체 그라데이션 효과가 추가된 최종 CSS]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -111,6 +112,8 @@ premium_css = f"""
     html, body, [class*="css"] {{ font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }}
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 1.2rem !important; padding-bottom: 2.5rem !important; padding-left: 1rem !important; padding-right: 1rem !important; max-width: 820px !important; }}
+    
+    /* 기존 카드 및 배지 디자인 */
     .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 20px 16px; border-radius: 18px; box-shadow: 0 10px 25px -5px rgba(49, 46, 129, 0.35); margin-bottom: 18px; border: 1px solid rgba(255, 255, 255, 0.12); }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 4px 10px; border-radius: 20px; margin-bottom: 8px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: clamp(14px, 4.2vw, 22px) !important; font-weight: 800 !important; margin: 0 0 6px 0 !important; line-height: 1.3 !important; white-space: nowrap !important; overflow: hidden !important; text-overflow: ellipsis !important; letter-spacing: -0.5px !important; }}
@@ -125,10 +128,37 @@ premium_css = f"""
     .inline-mic-icon {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background-color: #000000; color: #ffffff; vertical-align: middle; margin: 0 2px; }}
     .inline-stop-icon {{ display: inline-flex; align-items: center; justify-content: center; width: 24px; height: 24px; border-radius: 50%; background-color: #ef4444; color: #ffffff; vertical-align: middle; margin: 0 2px; }}
     .login-card {{ background: #ffffff; border: 1.5px solid #cbd5e1; border-radius: 16px; padding: 26px 20px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); margin-top: 15px; margin-bottom: 14px; word-break: keep-all; }}
-    .step-guide-box {{ background: #f8fafc; border: 1px solid #e2e8f0; border-left: 4px solid #3b82f6; border-radius: 10px; padding: 12px 15px; margin-bottom: 10px; font-size: 14px; color: #334155; line-height: 1.5; word-break: keep-all; }}
+    
     [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 12px !important; background-color: #ffffff !important; }}
     [data-testid="stAudioInput"] button:first-of-type {{ transform: scale(1.35) !important; margin-left: 6px !important; margin-right: 10px !important; }}
-    .stButton > button {{ border-radius: 10px !important; font-weight: 700 !important; padding: 0.55rem 1rem !important; }}
+    
+    /* -------------------------------------------------------------
+       [신규 디자인] 3D 그라데이션 입체 버튼 구현 (Primary Button 타겟팅)
+       ------------------------------------------------------------- */
+    div.stButton > button[kind="primary"] {{
+        background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 14px !important;
+        box-shadow: 0 10px 20px -5px rgba(67, 56, 202, 0.5), 0 4px 6px -2px rgba(0, 0, 0, 0.05) !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+        font-weight: 800 !important;
+        padding: 0.65rem 1.2rem !important;
+        letter-spacing: -0.5px !important;
+    }}
+    /* 마우스를 올렸을 때(호버) 톡 튀어나오는 효과 */
+    div.stButton > button[kind="primary"]:hover {{
+        transform: translateY(-3px) !important;
+        box-shadow: 0 14px 24px -4px rgba(67, 56, 202, 0.6), 0 6px 8px -2px rgba(0, 0, 0, 0.08) !important;
+        background: linear-gradient(135deg, #3730a3 0%, #4f46e5 50%, #6366f1 100%) !important;
+        color: #ffffff !important;
+        border: none !important;
+    }}
+    /* 클릭했을 때 살짝 눌리는 효과 */
+    div.stButton > button[kind="primary"]:active {{
+        transform: translateY(1px) !important;
+        box-shadow: 0 6px 12px -3px rgba(67, 56, 202, 0.5) !important;
+    }}
 </style>
 
 <div class="premium-header">
@@ -142,7 +172,7 @@ st.markdown(premium_css, unsafe_allow_html=True)
 cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
 all_cookies = cookie_manager.get_all()
 
-# --- [1단계] 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
+# --- 구글 OAuth 2.0 권한 및 시크릿 설정 로드 ---
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -247,44 +277,138 @@ def get_valid_credentials():
             pass
     return creds
 
+def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
+    if "drive_audio_folder_id" in st.session_state and st.session_state["drive_audio_folder_id"]:
+        return st.session_state["drive_audio_folder_id"]
+    authed_session = AuthorizedSession(creds)
+    query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
+    try:
+        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": query, "fields": "files(id, name)", "pageSize": 1})
+        if res.status_code == 200:
+            files = res.json().get("files", [])
+            if files:
+                folder_id = files[0]["id"]
+                st.session_state["drive_audio_folder_id"] = folder_id
+                return folder_id
+        folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
+        create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata)
+        if create_res.status_code in [200, 201]:
+            folder_id = create_res.json().get("id")
+            st.session_state["drive_audio_folder_id"] = folder_id
+            return folder_id
+    except Exception:
+        pass
+    return None
+
 # =====================================================================
-# [신규 추가] 구글 시트 숨김 금고(_App_Config_) 연동 API 키 영구 보존 함수
+# [무결점 4중 금고 로직 보존]
 # =====================================================================
-def save_api_key_to_sheet(creds, encoded_key):
-    """사용자의 구글 시트 내 숨김 탭(_App_Config_)에 암호화된 API 키를 영구 보관합니다."""
+def save_api_key_to_cloud_vault(creds, encoded_key):
     try:
         client_gspread = gspread.authorize(creds)
         try:
             spreadsheet = client_gspread.open(SHEET_NAME)
+            sheet1 = spreadsheet.sheet1
         except gspread.exceptions.SpreadsheetNotFound:
             spreadsheet = client_gspread.create(SHEET_NAME)
             sheet1 = spreadsheet.sheet1
-            sheet1.append_row(SHEET_HEADERS)
+            
+        try:
+            sheet1.update(range_name="A1:I1", values=[SHEET_HEADERS + [encoded_key]])
+        except Exception:
+            try:
+                sheet1.update(range_name="I1", values=[[encoded_key]])
+            except Exception:
+                pass
             
         try:
             ws = spreadsheet.worksheet(CONFIG_SHEET_TAB)
         except gspread.exceptions.WorksheetNotFound:
             ws = spreadsheet.add_worksheet(title=CONFIG_SHEET_TAB, rows=10, cols=2)
             try:
-                ws.hide() # 시트 화면에서 탭이 보이지 않도록 보안 숨김 처리
+                ws.hide()
             except Exception:
                 pass
         ws.update(range_name="A1:B1", values=[["GEMINI_API_KEY", encoded_key]])
     except Exception:
         pass
 
-def load_api_key_from_sheet(creds):
-    """쿠키가 지워졌을 때 사용자의 구글 시트 숨김 탭(_App_Config_)에서 API 키를 자동 복구합니다."""
+    try:
+        authed_session = AuthorizedSession(creds)
+        folder_id = get_or_create_drive_folder(creds, DRIVE_FOLDER_NAME)
+        q_str = f"name = '{VAULT_FILE_NAME}' and trashed = false"
+        if folder_id:
+            q_str = f"'{folder_id}' in parents and name = '{VAULT_FILE_NAME}' and trashed = false"
+        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": q_str, "fields": "files(id)", "pageSize": 5})
+        if res.status_code == 200:
+            for f in res.json().get("files", []):
+                authed_session.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}")
+        if encoded_key:
+            metadata = {"name": VAULT_FILE_NAME, "mimeType": "application/json"}
+            if folder_id:
+                metadata["parents"] = [folder_id]
+            vault_payload = json.dumps({"ak": encoded_key, "updated": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")})
+            files = {
+                "data": ("metadata", json.dumps(metadata), "application/json"),
+                "file": ("vault", vault_payload.encode("utf-8"), "application/json")
+            }
+            authed_session.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", files=files)
+    except Exception:
+        pass
+
+def load_api_key_from_cloud_vault(creds):
     try:
         client_gspread = gspread.authorize(creds)
         spreadsheet = client_gspread.open(SHEET_NAME)
-        ws = spreadsheet.worksheet(CONFIG_SHEET_TAB)
-        val = ws.acell("B1").value
-        return val if val else ""
+        
+        try:
+            sheet1 = spreadsheet.sheet1
+            row1 = sheet1.row_values(1)
+            if len(row1) >= 9 and len(row1[8].strip()) > 10:
+                return row1[8].strip()
+        except Exception:
+            pass
+            
+        try:
+            ws = spreadsheet.worksheet(CONFIG_SHEET_TAB)
+            val_b1 = ws.acell("B1").value
+            if val_b1 and len(val_b1.strip()) > 10:
+                try:
+                    spreadsheet.sheet1.update(range_name="I1", values=[[val_b1.strip()]])
+                except Exception:
+                    pass
+                return val_b1.strip()
+        except Exception:
+            pass
     except Exception:
-        return ""
+        pass
 
-# --- 로그인 화면 깜빡임 원천 차단 로직 ---
+    try:
+        authed_session = AuthorizedSession(creds)
+        folder_id = get_or_create_drive_folder(creds, DRIVE_FOLDER_NAME)
+        for q_str in [
+            f"'{folder_id}' in parents and name = '{VAULT_FILE_NAME}' and trashed = false" if folder_id else "",
+            f"name = '{VAULT_FILE_NAME}' and trashed = false",
+            "name = '_voice_api_key_vault.json' and trashed = false"
+        ]:
+            if not q_str:
+                continue
+            res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": q_str, "fields": "files(id)", "pageSize": 1})
+            if res.status_code == 200:
+                files = res.json().get("files", [])
+                if files:
+                    file_id = files[0]["id"]
+                    content_res = authed_session.get(f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media")
+                    if content_res.status_code == 200:
+                        data = content_res.json()
+                        ak_val = data.get("ak", "").strip()
+                        if ak_val:
+                            return ak_val
+    except Exception:
+        pass
+
+    return ""
+
 if "credentials" not in st.session_state:
     if "code" in st.query_params or "rt" in st.query_params:
         st.markdown("<div style='text-align: center; padding-top: 60px;'><div style='font-size: 40px; margin-bottom: 15px;'>⏳</div><div style='font-size: 18px; font-weight: 800; color: #1e293b;'>구글 계정 연동 중입니다...</div></div>", unsafe_allow_html=True)
@@ -331,55 +455,76 @@ if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"
     if not existing_cookies.get("voice_rt"):
         cookie_manager.set("voice_rt", st.session_state["saved_rt_encoded"], expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="reinforce_rt_cookie")
 
-# =====================================================================
-# [핵심 업그레이드] 3중 금고(쿠키 + URL + 구글 시트)에서 API 키 자동 복구
-# =====================================================================
+def sync_today_usage_from_sheet(today_date_str):
+    try:
+        creds = get_valid_credentials()
+        client_gspread = gspread.authorize(creds)
+        sheet = client_gspread.open(SHEET_NAME).sheet1
+        all_rows = sheet.get_all_values()
+        if not all_rows:
+            return 0, 0.0
+            
+        if len(all_rows[0]) >= 9 and all_rows[0][8].strip() and not st.session_state.get("key_cleared_flag"):
+            if not st.session_state.get("saved_api_key"):
+                try:
+                    raw_encoded_ak = all_rows[0][8].strip()
+                    decoded_ak = base64.b64decode(raw_encoded_ak.encode()).decode()
+                    if decoded_ak.startswith("AIza"):
+                        st.session_state["saved_api_key"] = decoded_ak
+                        st.query_params["ak"] = raw_encoded_ak
+                except Exception:
+                    pass
+
+        if len(all_rows) <= 1:
+            return 0, 0.0
+        today_count = 0
+        total_chars = 0
+        for row in all_rows[1:]:
+            if row and row[0].startswith(today_date_str):
+                today_count += 1
+                if len(row) >= 5:
+                    total_chars += len(row[4])
+        est_mins = max(today_count * 0.5, round(total_chars / 350.0, 1)) if today_count > 0 else 0.0
+        return today_count, est_mins
+    except Exception:
+        return 0, 0.0
+
+now_kst = datetime.now(KST)
+today_str = now_kst.strftime("%Y-%m-%d")
+
 if "saved_api_key" not in st.session_state:
     st.session_state["saved_api_key"] = ""
+
+if "sheet_synced_flag" not in st.session_state or st.session_state.get("usage_date") != today_str:
+    st.session_state["usage_date"] = today_str
+    s_count, s_mins = sync_today_usage_from_sheet(today_str)
+    st.session_state["daily_request_count"] = s_count
+    st.session_state["daily_used_seconds"] = s_mins * 60.0
+    st.session_state["sheet_synced_flag"] = True
 
 if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
     existing_cookies = all_cookies or {}
     encoded_ak = existing_cookies.get("voice_ak", "") or st.query_params.get("ak", "")
     
-    # 1차: 브라우저 쿠키나 URL에 없으면 ➡️ 내 구글 시트(_App_Config_)에서 즉시 자동 복구!
-    if not encoded_ak and "credentials" in st.session_state and not st.session_state.get("sheet_ak_checked"):
-        st.session_state["sheet_ak_checked"] = True
+    if not encoded_ak and "credentials" in st.session_state:
         creds = get_valid_credentials()
-        encoded_ak = load_api_key_from_sheet(creds)
+        encoded_ak = load_api_key_from_cloud_vault(creds)
+    elif encoded_ak and "credentials" in st.session_state and not st.session_state.get("vault_synced_once"):
+        st.session_state["vault_synced_once"] = True
+        creds = get_valid_credentials()
+        save_api_key_to_cloud_vault(creds, encoded_ak)
         
     if encoded_ak:
         try:
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
             st.session_state["saved_api_key"] = decoded_key
+            st.session_state["vault_synced_once"] = True
             if "ak" not in st.query_params:
                 st.query_params["ak"] = encoded_ak
             if not existing_cookies.get("voice_ak"):
                 cookie_manager.set("voice_ak", encoded_ak, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="restore_ak_cookie")
         except Exception:
             pass
-
-def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
-    if "drive_audio_folder_id" in st.session_state and st.session_state["drive_audio_folder_id"]:
-        return st.session_state["drive_audio_folder_id"]
-    authed_session = AuthorizedSession(creds)
-    query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
-    try:
-        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": query, "fields": "files(id, name)", "pageSize": 1})
-        if res.status_code == 200:
-            files = res.json().get("files", [])
-            if files:
-                folder_id = files[0]["id"]
-                st.session_state["drive_audio_folder_id"] = folder_id
-                return folder_id
-        folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
-        create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata)
-        if create_res.status_code in [200, 201]:
-            folder_id = create_res.json().get("id")
-            st.session_state["drive_audio_folder_id"] = folder_id
-            return folder_id
-    except Exception:
-        pass
-    return None
 
 def upload_audio_to_drive(creds, audio_bytes, mime_type, file_title="Voice_Record"):
     authed_session = AuthorizedSession(creds)
@@ -414,36 +559,6 @@ def upload_text_to_drive(creds, text_content, file_name):
     except Exception:
         return ""
 
-def sync_today_usage_from_sheet(today_date_str):
-    try:
-        creds = get_valid_credentials()
-        client_gspread = gspread.authorize(creds)
-        sheet = client_gspread.open(SHEET_NAME).sheet1
-        all_rows = sheet.get_all_values()
-        if len(all_rows) <= 1:
-            return 0, 0.0
-        today_count = 0
-        total_chars = 0
-        for row in all_rows[1:]:
-            if row and row[0].startswith(today_date_str):
-                today_count += 1
-                if len(row) >= 5:
-                    total_chars += len(row[4])
-        est_mins = max(today_count * 0.5, round(total_chars / 350.0, 1)) if today_count > 0 else 0.0
-        return today_count, est_mins
-    except Exception:
-        return 0, 0.0
-
-now_kst = datetime.now(KST)
-today_str = now_kst.strftime("%Y-%m-%d")
-
-if "sheet_synced_flag" not in st.session_state or st.session_state.get("usage_date") != today_str:
-    st.session_state["usage_date"] = today_str
-    s_count, s_mins = sync_today_usage_from_sheet(today_str)
-    st.session_state["daily_request_count"] = s_count
-    st.session_state["daily_used_seconds"] = s_mins * 60.0
-    st.session_state["sheet_synced_flag"] = True
-
 if "last_processed_hash" not in st.session_state:
     st.session_state["last_processed_hash"] = None
 
@@ -475,20 +590,20 @@ def save_api_key_permanently(raw_key):
     encoded_val = base64.b64encode(clean_key.encode()).decode()
     st.session_state["saved_api_key"] = clean_key
     st.session_state["key_cleared_flag"] = False
+    st.session_state["vault_synced_once"] = True
     st.query_params["ak"] = encoded_val
     cookie_manager.set("voice_ak", encoded_val, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_ak_cookie")
-    # 내 구글 시트 숨김 금고(_App_Config_)에 동시 백업하여 평생 풀림 방지
     if "credentials" in st.session_state:
         creds = get_valid_credentials()
-        save_api_key_to_sheet(creds, encoded_val)
-    time.sleep(0.4) # 브라우저가 쿠키를 안전하게 기록할 시간 부여
+        save_api_key_to_cloud_vault(creds, encoded_val)
+    time.sleep(0.5)
 
 @st.dialog("🔑 무료 Gemini API 키 1분 발급 절차 안내", width="large")
 def show_api_guide_modal():
     st.markdown("""
         <div style="margin-bottom: 14px; font-size: 14px; color: #475569; line-height: 1.6; word-break: keep-all;">
             AI 음성 변환 기능을 무료로 이용하기 위해 본인의 <b>구글 AI 열쇠(API 키)</b>를 발급받는 절차입니다.<br>
-            <b>(최초 1회만 등록하면 내 구글 시트 금고에 안전하게 자동 백업되어 앱을 닫아도 평생 유지됩니다 / 평생 무료)</b>
+            <b>(녹음을 하지 않고 키만 먼저 등록해 두어도 내 구글 시트 & 드라이브 안전 금고에 즉시 보관되어 평생 유지됩니다 / 평생 무료)</b>
         </div>
         <div style="margin-bottom: 14px;">
             <a href="https://aistudio.google.com/app/apikey" target="_blank" rel="noopener noreferrer" style="display: block; text-align: center; background: #ffffff; border: 2px solid #2563eb; color: #2563eb !important; padding: 12px 16px; border-radius: 10px; font-weight: 800; text-decoration: none !important; font-size: 14px;">
@@ -499,7 +614,8 @@ def show_api_guide_modal():
     modal_key = st.text_input("👇 발급받아 복사한 API 키를 여기에 바로 붙여넣으세요:", type="password", key="modal_api_input")
     if st.button("✅ API 키 영구 저장 및 시작하기", type="primary", use_container_width=True):
         if modal_key.strip():
-            save_api_key_permanently(modal_key)
+            with st.spinner("🔒 녹음 전이라도 내 구글 시트(Voice_Log_DB)를 즉시 생성하여 API 키를 영구 각인 중입니다..."):
+                save_api_key_permanently(modal_key)
             st.rerun()
 
 def add_to_google_calendar(creds, summary, assignee, details, due_date, event_time):
@@ -539,25 +655,28 @@ def download_audio_from_drive(creds, drive_url):
 
 def save_record_to_sheet(creds, row_data):
     client_gspread = gspread.authorize(creds)
+    enc_k = base64.b64encode(st.session_state["saved_api_key"].encode()).decode() if st.session_state.get("saved_api_key") else ""
     try:
         sheet = client_gspread.open(SHEET_NAME).sheet1
-        if sheet.row_values(1) != SHEET_HEADERS:
-            sheet.update(range_name="A1:H1", values=[SHEET_HEADERS])
+        if sheet.row_values(1)[:8] != SHEET_HEADERS:
+            sheet.update(range_name="A1:I1", values=[SHEET_HEADERS + [enc_k]])
+        elif enc_k:
+            sheet.update(range_name="I1", values=[[enc_k]])
     except gspread.exceptions.SpreadsheetNotFound:
         new_spreadsheet = client_gspread.create(SHEET_NAME)
         sheet = new_spreadsheet.sheet1
-        sheet.append_row(SHEET_HEADERS)
+        sheet.update(range_name="A1:I1", values=[SHEET_HEADERS + [enc_k]])
     sheet.append_row(row_data, value_input_option="RAW")
 
 if st.session_state["saved_api_key"]:
     col_status, col_key_btn, col_logout = st.columns([3.2, 1.1, 1.1])
     with col_status:
-        st.success("✅ 구글 계정 및 AI 키 영구 자동 유지 활성화됨")
+        st.success("✅ 구글 계정 및 AI 키 클라우드 영구 금고 연동 활성화됨")
     with col_key_btn:
         if st.button("🔑 API 키 변경", use_container_width=True):
             if "credentials" in st.session_state:
                 creds = get_valid_credentials()
-                save_api_key_to_sheet(creds, "") # 변경 요청 시 시트 금고 초기화
+                save_api_key_to_cloud_vault(creds, "")
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
             if "ak" in st.query_params:
@@ -634,7 +753,8 @@ if not st.session_state["saved_api_key"]:
         save_key_clicked = st.button("💾 키 영구 저장", type="primary", use_container_width=True)
     if key_input.strip() or save_key_clicked:
         if key_input.strip():
-            save_api_key_permanently(key_input)
+            with st.spinner("🔒 녹음 전이라도 내 구글 시트(Voice_Log_DB)를 즉시 생성하여 API 키를 영구 각인 중입니다..."):
+                save_api_key_permanently(key_input)
             st.rerun()
 
 user_api_key = st.session_state["saved_api_key"]
@@ -642,9 +762,6 @@ user_api_key = st.session_state["saved_api_key"]
 BLACK_MIC_BADGE = '<span class="inline-mic-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span class="inline-stop-icon"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
 
-# =====================================================================
-# [기존 수직형 아코디언 메뉴 100% 보존]
-# =====================================================================
 input_method = st.radio("음성 입력 방식을 선택하세요:", ["실시간 녹음", "파일 업로드"], horizontal=True)
 save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
@@ -705,6 +822,7 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
     st.markdown('<div style="font-size: 15px; font-weight: 800; color: #1e293b; line-height: 1.4; margin-bottom: 8px;">📊 최근 7일간 주간 요약 보고서 및<br>구글 시트 전용 페이지 자동 추가</div>', unsafe_allow_html=True)
     st.markdown("<div style='font-size: 13.5px; color: #475569; margin-bottom: 12px; word-break: keep-all;'>지인 공유 및 실무 활용을 위해 최근 7일 동안 시트에 누적된 회의/일정 데이터를 자동 집계하고, 파일 다운로드 및 구글 시트에 요약 전용 페이지를 자동 추가하여 보관합니다.</div>", unsafe_allow_html=True)
     
+    # 이 버튼도 Primary 버튼이므로 3D 그라데이션이 동일하게 적용됩니다.
     if st.button("📈 이번 주간 보고서 데이터 집계 및 생성하기", type="primary"):
         try:
             creds = get_valid_credentials()
@@ -716,8 +834,8 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
             if len(all_rows) <= 1:
                 st.warning("⚠️ 시트에 누적된 데이터가 없습니다.")
             else:
-                headers = all_rows[0]
-                rows = all_rows[1:]
+                headers = all_rows[0][:8]
+                rows = [r[:8] for r in all_rows[1:]]
                 
                 seven_days_ago = datetime.now(KST) - timedelta(days=7)
                 recent_rows = []
@@ -792,9 +910,6 @@ with st.expander("📊 주간 요약 보고서 및 구글 시트 전용 페이�
 
 st.markdown("<hr style='margin: 15px 0;'>", unsafe_allow_html=True)
 
-# =====================================================================
-# [투스텝(Two-Step) 오디오 + 사진/카메라 멀티모달 입력 및 분석실행하기]
-# =====================================================================
 audio_bytes = None
 mime_type = "audio/wav"
 
@@ -879,6 +994,7 @@ elif img_input_mode == "📸 카메라로 직접 촬영":
         st.success("✅ 촬영된 사진이 준비되었습니다! 아래 [🚀 분석실행하기] 버튼을 누르면 음성과 함께 통합 분석됩니다.")
 
 st.markdown("<div style='margin-top: 14px;'></div>", unsafe_allow_html=True)
+# 이 버튼 역시 3D 그라데이션이 동일하게 적용되어 영롱한 입체감을 가집니다!
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
 
 if analyze_clicked:
