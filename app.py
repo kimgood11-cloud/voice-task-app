@@ -100,11 +100,10 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 주소창 완벽 숨김(standalone) & 'AI음성변환' 매니페스트 강제 주입]
+# [CSS 및 UI 설정 - 주소창 강제 숨김 매니페스트 및 풀스크린 주입]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
-# 파이썬 단에서 직접 Base64 정식 매니페스트 URI를 생성하여 브라우저에 즉각 주입
 manifest_data = {
     "name": PAGE_TITLE,
     "short_name": PAGE_TITLE,
@@ -139,12 +138,11 @@ components.html(
             const parentDoc = window.parent.document;
             parentDoc.title = "{PAGE_TITLE}";
             
-            const applyCustomPWA = () => {{
+            const applyStandaloneMode = () => {{
                 if (parentDoc.title !== "{PAGE_TITLE}") {{
                     parentDoc.title = "{PAGE_TITLE}";
                 }}
                 
-                // 기존 Streamlit 기본 manifest 링크를 찾아 우리의 'AI음성변환' standalone 매니페스트로 주소 덮어쓰기
                 const manifests = parentDoc.querySelectorAll('link[rel="manifest"]');
                 if (manifests.length > 0) {{
                     manifests.forEach((el, idx) => {{
@@ -155,7 +153,7 @@ components.html(
                         }} else {{
                             el.remove();
                         }}
-                    }});
+                    }};
                 }} else {{
                     const newLink = parentDoc.createElement('link');
                     newLink.rel = 'manifest';
@@ -163,7 +161,6 @@ components.html(
                     parentDoc.head.appendChild(newLink);
                 }}
 
-                // 주소창 숨김(standalone) 보장용 메타 태그 강제 세팅
                 const metaTags = {{
                     "application-name": "{PAGE_TITLE}",
                     "apple-mobile-web-app-title": "{PAGE_TITLE}",
@@ -186,10 +183,10 @@ components.html(
                 }}
             }};
 
-            applyCustomPWA();
-            setInterval(applyCustomPWA, 300);
+            applyStandaloneMode();
+            setInterval(applyStandaloneMode, 300);
         }} catch (e) {{
-            console.error("PWA Setup Error:", e);
+            console.error("Standalone Mode Error:", e);
         }}
     </script>
     """,
@@ -371,7 +368,7 @@ def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
                 st.session_state["drive_audio_folder_id"] = folder_id
                 return folder_id
         folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
-        create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata)
+        create_res = authed_session.post("https://www.googleapis.com/upload/drive/v3/files", json=folder_metadata)
         if create_res.status_code in [200, 201]:
             folder_id = create_res.json().get("id")
             st.session_state["drive_audio_folder_id"] = folder_id
