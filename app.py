@@ -100,7 +100,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 주소창 강제 숨김 매니페스트 및 풀스크린 주입]
+# [CSS 및 UI 설정 - 독립형 PWA 매니페스트 및 주소창 숨김 강제 주입]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -138,7 +138,7 @@ components.html(
             const parentDoc = window.parent.document;
             parentDoc.title = "{PAGE_TITLE}";
             
-            const applyStandaloneMode = () => {{
+            const forceStandalonePWA = () => {{
                 if (parentDoc.title !== "{PAGE_TITLE}") {{
                     parentDoc.title = "{PAGE_TITLE}";
                 }}
@@ -183,10 +183,10 @@ components.html(
                 }}
             }};
 
-            applyStandaloneMode();
-            setInterval(applyStandaloneMode, 300);
+            forceStandalonePWA();
+            setInterval(forceStandalonePWA, 300);
         }} catch (e) {{
-            console.error("Standalone Mode Error:", e);
+            console.error("Standalone PWA Error:", e);
         }}
     </script>
     """,
@@ -726,7 +726,7 @@ if analyze_clicked:
             ctime = now.strftime("%Y-%m-%d %H:%M:%S")
             wkday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()] + "요일"
             
-            p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
+            p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_image if 'has_image' in locals() else has_img)
             client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
             schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
             config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
