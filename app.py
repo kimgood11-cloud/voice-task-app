@@ -26,8 +26,10 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 선택지 (카메라 촬영 단독 메뉴 삭제, 2개만 유지)
+# 2단계 사진 첨부 선택지 (안 함 / 사진 첨부하기 2개 고정)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
+# 안드로이드에서 카메라 아이콘과 파일 선택 2개가 동시에 뜨게 만드는 핵심 규격
+IMAGE_ACCEPT_RULE = "image/*"
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
@@ -53,8 +55,6 @@ DAILY_FREE_LIMIT_MINUTES = 600
 DAILY_FREE_LIMIT_REQUESTS = 500
 TOKENS_PER_SECOND = 32
 INLINE_LIMIT_MB = 18
-
-IMAGE_UPLOAD_TYPES = ["png", "jpg", "jpeg", "webp"]
 
 SHEET_HEADERS = [
     "등록일시", "카테고리", "담당자", "요약(큰타이틀)", 
@@ -103,7 +103,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 순정 파일 업로더 동작을 방해하던 버튼 개조 CSS 제거]
+# [CSS 및 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -114,6 +114,8 @@ premium_css = f"""
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
+    iframe[height="0"] {{ display: none !important; }}
+
     .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-bottom: 6px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: 18px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; line-height: 1.3 !important; letter-spacing: -0.5px !important; }}
@@ -554,15 +556,41 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 이전에 카메라와 파일 2개가 가장 잘 떴던 순정 st.file_uploader 구조 그대로 복원
+# 2단계 사진 첨부: 안드로이드가 문서 탐색기 대신 [카메라 + 파일 선택]을 동시에 띄우도록 type 제한 제거 및 image/* 속성 주입
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
-    uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
+    # type 매개변수를 생략하고 아래 스크립트로 accept="image/*"를 주입해야 안드로이드에서 카메라 아이콘이 함께 뜹니다.
+    uploaded_img = st.file_uploader("사진 선택 (카메라 촬영 및 파일 첨부)")
+    
+    components.html(
+        f"""
+        <script>
+            const enableCameraAndFile = () => {{
+                const parentDoc = window.parent.document;
+                const fileInputs = parentDoc.querySelectorAll('input[type="file"]');
+                fileInputs.forEach(input => {{
+                    const currentAccept = input.getAttribute('accept') || '';
+                    // 음성 업로더(.mp3 등)가 아닌 사진 업로더에 정확히 image/* 규격을 꽂아 카메라 아이콘을 활성화합니다.
+                    if (!currentAccept.includes('mp3') && currentAccept !== '{IMAGE_ACCEPT_RULE}') {{
+                        input.setAttribute('accept', '{IMAGE_ACCEPT_RULE}');
+                        input.removeAttribute('capture');
+                    }}
+                }});
+            }};
+            enableCameraAndFile();
+            setInterval(enableCameraAndFile, 250);
+        </script>
+        """,
+        height=0,
+        width=0
+    )
+
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
-        image_mime_type = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(uploaded_img.name.split(".")[-1].lower(), "image/jpeg")
+        ext_lower = uploaded_img.name.split(".")[-1].lower() if "." in uploaded_img.name else "jpg"
+        image_mime_type = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(ext_lower, "image/jpeg")
         st.image(image_bytes, caption="✅ 이미지 대기 중", use_container_width=True)
 
 st.write("")
