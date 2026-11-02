@@ -26,12 +26,9 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 선택지 (보내주신 이미지와 100% 동일하게 2개만 고정)
+# 2단계 사진 첨부 선택지 (안 함 / 사진 첨부하기 2개 고정)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
-IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
-
-# 기본 Upload 버튼 클릭 시 하단 '작업 선택 [카메라 / 파일]' 팝업을 띄우는 표준 규격
-TARGET_ACCEPT_TYPE = "image/*"
+IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp"]
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
@@ -116,8 +113,6 @@ premium_css = f"""
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
-    iframe[height="0"] {{ display: none !important; }}
-
     .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-bottom: 6px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: 18px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; line-height: 1.3 !important; letter-spacing: -0.5px !important; }}
@@ -521,7 +516,7 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [5. 메인 입력 구역 - 보내주신 이미지(image_0694c0.png)와 100% 동일한 구성]
+# [5. 메인 입력 구역 - 시스템 팝업 의존 탈피: 카메라와 파일 선택 버튼 이원화]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -550,39 +545,19 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 보내주신 이미지(image_0694c0.png)와 완전히 동일한 화면 구성
+# 2단계 사진 첨부: 안드로이드 시스템 팝업 대신 화면에서 카메라와 파일 선택 버튼을 완전히 이원화하여 제공
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
-    uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
+    # 시스템 팝업 의존성을 없애기 위해 카메라 촬영과 갤러리 파일 선택을 화면에 명확히 분리
+    attach_method = st.radio("첨부 방식 선택", ["📸 카메라로 직접 촬영", "📁 갤러리에서 파일 선택"], horizontal=True)
     
-    # 화면에는 전혀 보이지 않으며(height=0), 기본 Upload 버튼 클릭 시 '작업 선택 [카메라 / 파일]' 팝업이 뜨도록 image/* 속성을 주입합니다.
-    components.html(
-        f"""
-        <script>
-            function enableNativeActionChooser() {{
-                try {{
-                    const inputs = window.parent.document.querySelectorAll('input[type="file"]');
-                    inputs.forEach(inp => {{
-                        const acc = inp.getAttribute('accept') || '';
-                        if (!acc.includes('mp3') && !acc.includes('wav')) {{
-                            if (acc !== '{TARGET_ACCEPT_TYPE}') {{
-                                inp.setAttribute('accept', '{TARGET_ACCEPT_TYPE}');
-                                inp.removeAttribute('capture');
-                            }}
-                        }}
-                    }});
-                }} catch (e) {{}}
-            }}
-            enableNativeActionChooser();
-            setInterval(enableNativeActionChooser, 300);
-        </script>
-        """,
-        height=0,
-        width=0
-    )
-
+    if attach_method == "📸 카메라로 직접 촬영":
+        uploaded_img = st.camera_input("카메라 직접 촬영")
+    else:
+        uploaded_img = st.file_uploader("갤러리 사진 파일 선택", type=IMAGE_UPLOAD_TYPES)
+        
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
         ext_lower = uploaded_img.name.split(".")[-1].lower() if "." in uploaded_img.name else "jpg"
