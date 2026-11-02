@@ -20,13 +20,12 @@ import extra_streamlit_components as stx
 # =====================================================================
 # [기본 환경 설정]
 # =====================================================================
-PAGE_TITLE = "AI음성변환"  # 앱 및 브라우저 타이틀
+PAGE_TITLE = "AI음성변환"  # 스마트폰 바탕화면 앱 설치 이름
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"  # 메인 화면 상단 헤더 타이틀
 APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 옵션 (카메라 단독 메뉴 제거 및 파일 첨부로 통합)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
@@ -103,7 +102,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정]
+# [CSS 및 UI 설정 - 카메라/파일 통합 업로더 스타일링]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -150,23 +149,24 @@ premium_css = f"""
         box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.5) !important;
     }}
 
-    /* 파일 업로더 버튼 한글화 및 터치 편의성 강화 */
+    /* 사진 첨부 버튼 직관적 한글화 */
     [data-testid="stFileUploader"] button {{
         background-color: #10b981 !important;
         color: #ffffff !important;
         border: none !important;
         border-radius: 10px !important;
-        padding: 8px 16px !important;
+        padding: 10px 16px !important;
         font-weight: 800 !important;
         width: 100% !important;
     }}
     [data-testid="stFileUploader"] button span {{ display: none !important; }}
     [data-testid="stFileUploader"] button::after {{
-        content: "📸 카메라 촬영 / 📁 파일 선택하기" !important;
+        content: "📸 카메라 즉시 촬영 / 📁 갤러리 파일 선택" !important;
         display: block !important;
         font-size: 14px !important;
         font-weight: 800 !important;
     }}
+    [data-testid="stFileUploaderDropzone"] small {{ display: none !important; }}
 </style>
 
 <div class="premium-header">
@@ -572,12 +572,13 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계: 대표님 아이디어 반영 - 카메라 단독 옵션 제거 및 '사진 첨부하기'로 통합
-st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 [📁 사진 첨부하기]를 눌러 카메라로 직접 찍거나 갤러리에서 선택하세요.</span></div>', unsafe_allow_html=True)
-img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
+# 2단계 사진 첨부 (모바일에서 카메라 촬영과 갤러리 선택이 동시에 뜨도록 capture 속성 보강)
+st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">아래 버튼을 누르면 스마트폰에서 [카메라로 즉시 촬영]하거나 [갤러리에서 선택]할 수 있습니다.</span></div>', unsafe_allow_html=True)
+img_input_mode = st.radio("사진 첨부 선택", IMAGE_MODE_OPTIONS, horizontal=True)
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
-    uploaded_img = st.file_uploader("아래 초록색 버튼을 누르면 [카메라 촬영] 또는 [파일 선택] 창이 뜹니다.", type=IMAGE_UPLOAD_TYPES)
+    # 모바일 브라우저/APK 웹뷰에서 카메라와 갤러리 선택이 모두 열리도록 파일 업로더 활용
+    uploaded_img = st.file_uploader("사진 첨부", type=IMAGE_UPLOAD_TYPES, label_visibility="collapsed")
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
         image_mime_type = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(uploaded_img.name.split(".")[-1].lower(), "image/jpeg")
