@@ -18,7 +18,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [기본 환경 설정 - 수정 가능한 주요 변수]
+# [기본 환경 설정]
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
@@ -26,10 +26,7 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 선택지 (안 함 / 사진 첨부하기 2개 고정)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
-
-# 안드로이드에서 카메라 아이콘과 파일 첨부 2개가 동시에 뜨도록 표준 이미지 확장자만 지정
 IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
@@ -104,7 +101,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 파일 업로더 간섭 코드 완전 제거]
+# [CSS 및 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -130,7 +127,6 @@ premium_css = f"""
     .mic-guide-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #000000; border-radius: 12px; padding: 12px 14px; margin-top: 6px; margin-bottom: 12px; word-break: keep-all; }}
     
     [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; }}
-    [data-testid="stAudioInput"] button:first-of-type {{ transform: scale(1.3) !important; margin-left: 4px !important; margin-right: 8px !important; }}
     
     div.stButton > button[kind="primary"] {{
         background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%) !important;
@@ -141,14 +137,6 @@ premium_css = f"""
         transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
         font-weight: 800 !important;
         padding: 0.6rem 1rem !important;
-    }}
-    div.stButton > button[kind="primary"]:hover {{
-        transform: translateY(-2px) !important;
-        box-shadow: 0 12px 20px -3px rgba(67, 56, 202, 0.6) !important;
-    }}
-    div.stButton > button[kind="primary"]:active {{
-        transform: translateY(1px) !important;
-        box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.5) !important;
     }}
 </style>
 
@@ -555,12 +543,18 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 순정 st.file_uploader에 표준 이미지 타입(jpg, jpeg, png)만 지정하여 카메라와 파일 2개가 뜨도록 복원
-st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
-img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
+# 2단계 사진 첨부: 자체 기능으로 카메라 촬영과 파일 첨부 2가지 분리
+st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 카메라로 찍거나 갤러리에서 파일을 첨부하세요.</span></div>', unsafe_allow_html=True)
+img_input_mode = st.radio("사진 첨부 여부", IMAGE_MODE_OPTIONS, horizontal=True, label_visibility="collapsed")
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
-    uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
+    upload_type = st.radio("첨부 방식 선택", ["📸 카메라 촬영", "📁 파일 첨부"], horizontal=True)
+    
+    if upload_type == "📸 카메라 촬영":
+        uploaded_img = st.camera_input("카메라 촬영", label_visibility="collapsed")
+    else:
+        uploaded_img = st.file_uploader("사진 파일 선택", type=IMAGE_UPLOAD_TYPES, label_visibility="collapsed")
+        
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
         ext_lower = uploaded_img.name.split(".")[-1].lower() if "." in uploaded_img.name else "jpg"
