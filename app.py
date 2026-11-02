@@ -100,11 +100,38 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - Streamlit 기본 설치 팝업 차단 및 이름 변경 활성화]
+# [CSS 및 UI 설정 - 주소창 완벽 숨김(standalone) & 'AI음성변환' 매니페스트 강제 주입]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
-# 크롬이 'Streamlit' 고정 앱으로 설치하는 것을 막고, 'AI음성변환' 이름 수정이 가능한 독립 앱 모드로 강제 전환
+# 파이썬 단에서 직접 Base64 정식 매니페스트 URI를 생성하여 브라우저에 즉각 주입
+manifest_data = {
+    "name": PAGE_TITLE,
+    "short_name": PAGE_TITLE,
+    "start_url": REDIRECT_URI,
+    "display": "standalone",
+    "background_color": "#ffffff",
+    "theme_color": "#1e1b4b",
+    "orientation": "portrait",
+    "icons": [
+        {
+            "src": "https://cdn-icons-png.flaticon.com/512/2593/2593491.png",
+            "sizes": "192x192",
+            "type": "image/png",
+            "purpose": "any maskable"
+        },
+        {
+            "src": "https://cdn-icons-png.flaticon.com/512/2593/2593491.png",
+            "sizes": "512x512",
+            "type": "image/png",
+            "purpose": "any maskable"
+        }
+    ]
+}
+manifest_json_str = json.dumps(manifest_data, ensure_ascii=False)
+manifest_b64 = base64.b64encode(manifest_json_str.encode('utf-8')).decode('utf-8')
+custom_manifest_uri = f"data:application/manifest+json;charset=utf-8;base64,{manifest_b64}"
+
 components.html(
     f"""
     <script>
@@ -112,37 +139,57 @@ components.html(
             const parentDoc = window.parent.document;
             parentDoc.title = "{PAGE_TITLE}";
             
-            // 1. Streamlit으로 이름이 고정된 기본 manifest.json 링크를 완전히 제거하여 이름 수정창 활성화
-            const removeManifests = () => {{
-                const manifests = parentDoc.querySelectorAll('link[rel="manifest"]');
-                manifests.forEach(el => el.remove());
+            const applyCustomPWA = () => {{
                 if (parentDoc.title !== "{PAGE_TITLE}") {{
                     parentDoc.title = "{PAGE_TITLE}";
                 }}
-            }};
-            removeManifests();
-            setInterval(removeManifests, 500);
-
-            // 2. 주소창 없이 전체화면 어플처럼 열리도록 만드는 모바일 웹앱 메타 태그 주입
-            const metaTags = {{
-                "application-name": "{PAGE_TITLE}",
-                "apple-mobile-web-app-title": "{PAGE_TITLE}",
-                "apple-mobile-web-app-capable": "yes",
-                "mobile-web-app-capable": "yes",
-                "theme-color": "#1e1b4b"
-            }};
-            
-            for (const [name, content] of Object.entries(metaTags)) {{
-                let meta = parentDoc.querySelector(`meta[name="${{name}}"]`);
-                if (!meta) {{
-                    meta = parentDoc.createElement('meta');
-                    meta.name = name;
-                    parentDoc.head.appendChild(meta);
+                
+                // 기존 Streamlit 기본 manifest 링크를 찾아 우리의 'AI음성변환' standalone 매니페스트로 주소 덮어쓰기
+                const manifests = parentDoc.querySelectorAll('link[rel="manifest"]');
+                if (manifests.length > 0) {{
+                    manifests.forEach((el, idx) => {{
+                        if (idx === 0) {{
+                            if (el.href !== "{custom_manifest_uri}") {{
+                                el.href = "{custom_manifest_uri}";
+                            }}
+                        }} else {{
+                            el.remove();
+                        }}
+                    }});
+                }} else {{
+                    const newLink = parentDoc.createElement('link');
+                    newLink.rel = 'manifest';
+                    newLink.href = "{custom_manifest_uri}";
+                    parentDoc.head.appendChild(newLink);
                 }}
-                meta.content = content;
-            }}
+
+                // 주소창 숨김(standalone) 보장용 메타 태그 강제 세팅
+                const metaTags = {{
+                    "application-name": "{PAGE_TITLE}",
+                    "apple-mobile-web-app-title": "{PAGE_TITLE}",
+                    "apple-mobile-web-app-capable": "yes",
+                    "mobile-web-app-capable": "yes",
+                    "apple-mobile-web-app-status-bar-style": "black-translucent",
+                    "theme-color": "#1e1b4b"
+                }};
+                
+                for (const [name, content] of Object.entries(metaTags)) {{
+                    let meta = parentDoc.querySelector(`meta[name="${{name}}"]`);
+                    if (!meta) {{
+                        meta = parentDoc.createElement('meta');
+                        meta.name = name;
+                        parentDoc.head.appendChild(meta);
+                    }}
+                    if (meta.content !== content) {{
+                        meta.content = content;
+                    }}
+                }}
+            }};
+
+            applyCustomPWA();
+            setInterval(applyCustomPWA, 300);
         }} catch (e) {{
-            console.error("Title & Manifest Control Error:", e);
+            console.error("PWA Setup Error:", e);
         }}
     </script>
     """,
