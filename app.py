@@ -98,7 +98,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 한글 카메라 버튼 + 3D Primary 버튼 포함]
+# [CSS 및 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
 
@@ -126,7 +126,6 @@ premium_css = f"""
     [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; }}
     [data-testid="stAudioInput"] button:first-of-type {{ transform: scale(1.3) !important; margin-left: 4px !important; margin-right: 8px !important; }}
     
-    /* 3D 그라데이션 버튼 (Primary) */
     div.stButton > button[kind="primary"] {{
         background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%) !important;
         color: #ffffff !important;
@@ -146,7 +145,6 @@ premium_css = f"""
         box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.5) !important;
     }}
 
-    /* 카메라 영문 강제 한글화 */
     div[data-testid="stCameraInput"] button:first-of-type span {{ display: none !important; }}
     div[data-testid="stCameraInput"] button:first-of-type::after {{
         content: "📸 사진 촬영" !important; display: block !important; font-weight: 700 !important; font-size: 15px !important; padding: 3px 0 !important;
@@ -504,13 +502,16 @@ else:
             except: pass
             time.sleep(0.3); st.rerun()
 
+# --- [오늘 사용량 데이터 영역 4구역 복원] ---
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
     <div class="usage-card">
-        <div class="usage-title">📊 오늘 AI 사용량 ({today_str})</div>
+        <div class="usage-title">📊 오늘 사용량 데이터 ({today_str})</div>
         <div class="usage-grid">
+            <div class="usage-item"><div class="usage-label">1회 최대 분석 한도</div><div class="usage-value">최대 {MAX_SINGLE_FREE_MINUTES}분</div></div>
+            <div class="usage-item"><div class="usage-label">오늘 누적 사용 시간</div><div class="usage-value">{used_mins:.1f}분 <span style="font-size:10px; color:#64748b;">/ {DAILY_FREE_LIMIT_MINUTES}분</span></div></div>
             <div class="usage-item"><div class="usage-label">잔여 시간</div><div class="usage-value" style="color:#10b981;">{max(0.0, DAILY_FREE_LIMIT_MINUTES - used_mins):.1f}분</div></div>
-            <div class="usage-item"><div class="usage-label">사용 횟수</div><div class="usage-value">{st.session_state["daily_request_count"]}회 <span style="font-size:10px;">/500</span></div></div>
+            <div class="usage-item"><div class="usage-label">사용 횟수</div><div class="usage-value">{st.session_state["daily_request_count"]}회 <span style="font-size:10px; color:#64748b;">/500</span></div></div>
         </div>
     </div>
 """, unsafe_allow_html=True)
@@ -529,8 +530,11 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [메인 입력 구역 - 모바일 동선 최적화]
+# [메인 입력 구역 - 마이크 및 정지 아이콘 포함]
 # =====================================================================
+BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
+RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
+
 input_method = st.radio("입력 방식", ["실시간 녹음", "파일 업로드"], horizontal=True)
 save_audio_toggle = st.checkbox(AUDIO_CHECKBOX_LABEL, value=True)
 
@@ -538,7 +542,7 @@ audio_bytes = None
 mime_type = "audio/wav"
 
 if input_method == "실시간 녹음":
-    st.markdown('<div class="mic-guide-card"><span style="font-weight:bold;">🎙️ [1단계] 녹음 (대기 방식)</span><br><span style="font-size:12px; color:#475569;">마이크(🎙️)를 눌러 녹음 후 정지하면 자동 대기됩니다.</span></div>', unsafe_allow_html=True)
+    st.markdown(f'<div class="mic-guide-card"><span style="font-weight:bold;">🎙️ [1단계] 녹음 (대기 방식)</span><br><span style="font-size:13px; color:#475569;">왼쪽의 {BLACK_MIC_BADGE} <b>마이크</b>를 눌러 시작하고, {RED_STOP_BADGE} <b style="color:#ef4444;">빨간색 정지</b>를 누르면 자동 대기됩니다.</span></div>', unsafe_allow_html=True)
     recorded_file = st.audio_input("마이크 누르기")
     if recorded_file:
         audio_bytes = recorded_file.getvalue()
