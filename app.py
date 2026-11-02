@@ -19,7 +19,7 @@ import extra_streamlit_components as stx
 # =====================================================================
 # [기본 환경 설정]
 # =====================================================================
-APP_TITLE = "맞춤형 음성 변환 시스템"
+APP_TITLE = "개인 맞춤형 음성 변환 시스템"
 APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
@@ -502,7 +502,6 @@ else:
             except: pass
             time.sleep(0.3); st.rerun()
 
-# --- [오늘 사용량 데이터 영역 4구역 복원] ---
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
     <div class="usage-card">
@@ -530,7 +529,7 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [메인 입력 구역 - 마이크 및 정지 아이콘 포함]
+# [메인 입력 구역]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
