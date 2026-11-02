@@ -30,6 +30,10 @@ ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
 
+# 스마트폰 기본 카메라 직접 호출용 매개변수 (후면 카메라: environment, 전면 카메라: user)
+CAMERA_CAPTURE_MODE = "environment"
+CUSTOM_CAMERA_BTN_TEXT = "📸 스마트폰 기본 카메라 바로 실행 (촬영 후 자동첨부)"
+
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 CONFIG_SHEET_TAB = "_App_Config_"
@@ -153,7 +157,7 @@ cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
 all_cookies = cookie_manager.get_all()
 
 # =====================================================================
-# [4. 구글 OAuth 2.0 인증 및 4중 영구 금고 로직 (기존 기능 100% 유지)]
+# [4. 구글 OAuth 2.0 인증 및 4중 영구 금고 로직 (기존 코드 100% 보존)]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -516,7 +520,7 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [5. 메인 입력 구역 - 1단계 음성 & 2단계 사진 첨부]
+# [5. 메인 입력 구역 - 단일 업로더 + 스마트폰 기본 카메라 직통 호출 버튼]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -545,11 +549,93 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: [안 함 (음성만)] 과 [📁 사진 첨부하기] 2개만 표시하고 단일 업로더로 작동
+# 2단계 사진 첨부: [안 함 (음성만)] 과 [📁 사진 첨부하기] 2개만 표시하고 단일 업로더 유지
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
+    # [커스텀 HTML 버튼] 스마트폰 기본 카메라 앱을 직접 깨우고 찍은 사진을 아래 단일 업로더로 자동 전달합니다.
+    components.html(
+        f"""
+        <div style="margin-bottom: 6px;">
+            <input type="file" id="direct_native_cam" accept="image/*" capture="{CAMERA_CAPTURE_MODE}" style="display:none;" />
+            <button type="button" onclick="openNativeCamera()" style="
+                width: 100%;
+                padding: 12px 14px;
+                background: linear-gradient(135deg, #059669 0%, #10b981 100%);
+                color: #ffffff;
+                border: none;
+                border-radius: 12px;
+                font-size: 14px;
+                font-weight: 800;
+                cursor: pointer;
+                box-shadow: 0 4px 10px rgba(16, 185, 129, 0.3);
+                font-family: 'Pretendard', sans-serif;
+            ">
+                {CUSTOM_CAMERA_BTN_TEXT}
+            </button>
+            <div id="cam_bridge_msg" style="font-size:12px; color:#059669; margin-top:4px; font-weight:700; display:none; text-align:center;">
+                ✅ 촬영한 사진을 아래 업로더에 자동 첨부했습니다!
+            </div>
+        </div>
+        <script>
+            // 1. 기존 단일 업로더(Upload 버튼)에도 image/* 속성을 주입하여 카메라+파일 선택창을 유도합니다.
+            function patchStreamlitImageUploader() {{
+                try {{
+                    const parentDoc = window.parent.document;
+                    const fileInputs = parentDoc.querySelectorAll('input[type="file"]');
+                    fileInputs.forEach(inp => {{
+                        const acc = inp.getAttribute('accept') || '';
+                        if (!acc.includes('mp3') && !acc.includes('wav')) {{
+                            if (acc !== 'image/*') {{
+                                inp.setAttribute('accept', 'image/*');
+                            }}
+                        }}
+                    }});
+                }} catch (e) {{}}
+            }}
+            patchStreamlitImageUploader();
+            setInterval(patchStreamlitImageUploader, 400);
+
+            // 2. 초록색 카메라 직통 버튼을 누르면 스마트폰 기본 카메라를 깨우고, 찍은 사진을 단일 업로더로 전달합니다.
+            function openNativeCamera() {{
+                const camInput = document.getElementById('direct_native_cam');
+                camInput.value = '';
+                camInput.click();
+            }}
+
+            document.getElementById('direct_native_cam').addEventListener('change', function(e) {{
+                if (!this.files || !this.files[0]) return;
+                const capturedFile = this.files[0];
+                try {{
+                    const parentDoc = window.parent.document;
+                    const fileInputs = parentDoc.querySelectorAll('input[type="file"]');
+                    let targetUploader = null;
+                    fileInputs.forEach(inp => {{
+                        const acc = inp.getAttribute('accept') || '';
+                        if (!acc.includes('mp3') && !acc.includes('wav')) {{
+                            targetUploader = inp;
+                        }}
+                    }});
+                    if (targetUploader) {{
+                        const dt = new DataTransfer();
+                        dt.items.add(capturedFile);
+                        targetUploader.files = dt.files;
+                        targetUploader.dispatchEvent(new Event('change', {{ bubbles: true }}));
+                        targetUploader.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                        const msg = document.getElementById('cam_bridge_msg');
+                        msg.style.display = 'block';
+                    }}
+                }} catch (err) {{
+                    alert('업로더 전달 중 오류가 발생했습니다: ' + err);
+                }}
+            }});
+        </script>
+        """,
+        height=65
+    )
+
+    # 기존 단일 업로더 유지 (파일 첨부 및 촬영 사진 자동 수신)
     uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
