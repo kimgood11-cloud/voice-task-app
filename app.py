@@ -19,8 +19,8 @@ import extra_streamlit_components as stx
 # =====================================================================
 # [기본 환경 설정]
 # =====================================================================
-# 앱 공식 이름 고정 적용 완료
-APP_TITLE = "AI음성변환"
+PAGE_TITLE = "AI음성변환"  # 어플 설치 시 적용되는 이름
+APP_TITLE = "개인형 맞춤 AI음성변환 시스템"  # 메인 화면 상단 헤더 타이틀
 APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
@@ -101,7 +101,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
 # =====================================================================
 # [CSS 및 UI 설정]
 # =====================================================================
-st.set_page_config(page_title=APP_TITLE, page_icon="🎙️", layout="wide")
+st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
 premium_css = f"""
 <style>
@@ -569,7 +569,6 @@ if img_input_mode == "📁 파일":
         image_mime_type = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(uploaded_img.name.split(".")[-1].lower(), "image/jpeg")
         st.image(image_bytes, caption="✅ 이미지 대기 중", use_container_width=True)
 elif img_input_mode == "📸 카메라":
-    st.info("💡 팁: '홈 화면 어플' 모드에서 카메라 렌즈가 켜지지 않는다면, 안드로이드 보안 정책 차단 때문입니다. 이 경우 📁 [사진/이미지 파일 첨부] 옵션을 선택해 스마트폰 기본 카메라 앱으로 직접 찍어서 올려주세요!")
     camera_img = st.camera_input("촬영")
     if camera_img:
         image_bytes = camera_img.getvalue()
