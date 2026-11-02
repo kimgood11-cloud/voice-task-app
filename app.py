@@ -100,11 +100,11 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 자바스크립트 기반 PWA 매니페스트 강제 덮어쓰기]
+# [CSS 및 UI 설정 - Streamlit 기본 설치 팝업 차단 및 이름 변경 활성화]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
-# 브라우저 최상단 <head>의 기본 Streamlit 매니페스트를 제거하고 'AI음성변환' 매니페스트로 강제 교체
+# 크롬이 'Streamlit' 고정 앱으로 설치하는 것을 막고, 'AI음성변환' 이름 수정이 가능한 독립 앱 모드로 강제 전환
 components.html(
     f"""
     <script>
@@ -112,12 +112,24 @@ components.html(
             const parentDoc = window.parent.document;
             parentDoc.title = "{PAGE_TITLE}";
             
-            // 메타 태그 강제 업데이트
+            // 1. Streamlit으로 이름이 고정된 기본 manifest.json 링크를 완전히 제거하여 이름 수정창 활성화
+            const removeManifests = () => {{
+                const manifests = parentDoc.querySelectorAll('link[rel="manifest"]');
+                manifests.forEach(el => el.remove());
+                if (parentDoc.title !== "{PAGE_TITLE}") {{
+                    parentDoc.title = "{PAGE_TITLE}";
+                }}
+            }};
+            removeManifests();
+            setInterval(removeManifests, 500);
+
+            // 2. 주소창 없이 전체화면 어플처럼 열리도록 만드는 모바일 웹앱 메타 태그 주입
             const metaTags = {{
                 "application-name": "{PAGE_TITLE}",
                 "apple-mobile-web-app-title": "{PAGE_TITLE}",
                 "apple-mobile-web-app-capable": "yes",
-                "mobile-web-app-capable": "yes"
+                "mobile-web-app-capable": "yes",
+                "theme-color": "#1e1b4b"
             }};
             
             for (const [name, content] of Object.entries(metaTags)) {{
@@ -129,36 +141,8 @@ components.html(
                 }}
                 meta.content = content;
             }}
-
-            // 기존 Streamlit 기본 manifest.json 링크 제거 후 커스텀 manifest 주입
-            const existingManifests = parentDoc.querySelectorAll('link[rel="manifest"]');
-            existingManifests.forEach(el => el.remove());
-
-            const customManifest = {{
-                "name": "{PAGE_TITLE}",
-                "short_name": "{PAGE_TITLE}",
-                "start_url": window.parent.location.origin + window.parent.location.pathname,
-                "display": "standalone",
-                "background_color": "#ffffff",
-                "theme_color": "#4338ca",
-                "icons": [
-                    {{
-                        "src": "https://cdn-icons-png.flaticon.com/512/2593/2593491.png",
-                        "sizes": "512x512",
-                        "type": "image/png",
-                        "purpose": "any maskable"
-                    }}
-                ]
-            }};
-
-            const manifestBlob = new Blob([JSON.stringify(customManifest)], {{type: 'application/json'}});
-            const manifestUrl = URL.createObjectURL(manifestBlob);
-            const newManifestLink = parentDoc.createElement('link');
-            newManifestLink.rel = 'manifest';
-            newManifestLink.href = manifestUrl;
-            parentDoc.head.appendChild(newManifestLink);
         }} catch (e) {{
-            console.error("PWA Title Override Error:", e);
+            console.error("Title & Manifest Control Error:", e);
         }}
     </script>
     """,
@@ -173,7 +157,6 @@ premium_css = f"""
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
-    /* 컴포넌트용 투명 iframe 여백 제거 */
     iframe[height="0"] {{ display: none !important; }}
 
     .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); }}
