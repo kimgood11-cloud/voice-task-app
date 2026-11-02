@@ -18,7 +18,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [기본 환경 설정]
+# [1. 기본 환경 설정 - 수정 가능한 주요 매개변수]
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
@@ -26,7 +26,7 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 대표님 요청 반영: 선택지를 '안 함'과 '사진 첨부하기' 딱 2개로 고정[cite: 4]
+# 2단계 사진 첨부 선택지: '안 함'과 '사진 첨부하기' 2개만 고정
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
 
@@ -65,7 +65,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [AI 프롬프트 로직]
+# [2. AI 프롬프트 생성 함수]
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_image=False):
     image_instruction = ""
@@ -102,7 +102,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정]
+# [3. CSS 및 상단 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -152,7 +152,9 @@ st.markdown(premium_css, unsafe_allow_html=True)
 cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
 all_cookies = cookie_manager.get_all()
 
-# --- 구글 OAuth 2.0 및 권한 로드 ---
+# =====================================================================
+# [4. 구글 OAuth 2.0 인증 및 4중 영구 금고 로직 (기존 기능 100% 유지)]
+# =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
     "https://www.googleapis.com/auth/drive.file",
@@ -212,7 +214,7 @@ if "credentials" not in st.session_state and "code" in st.query_params and "stat
         else:
             st.query_params.clear()
             st.rerun()
-    except Exception as e:
+    except Exception:
         st.query_params.clear()
         st.stop()
 
@@ -268,7 +270,6 @@ def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
     except: pass
     return None
 
-# --- 4중 영구 금고 ---
 def save_api_key_to_cloud_vault(creds, encoded_key):
     try:
         client_gspread = gspread.authorize(creds)
@@ -506,7 +507,7 @@ if not st.session_state["saved_api_key"]:
     with c1:
         if st.button("📖 발급 방법", type="primary", use_container_width=True): show_api_guide_modal()
     with c2: st.markdown('<a href="https://aistudio.google.com/app/apikey" target="_blank" style="display:flex; align-items:center; justify-content:center; border:2px solid #2563eb; color:#2563eb !important; padding:7px; border-radius:10px; font-weight:800; font-size:13px; text-decoration:none;">🔗 키 발급(새창)</a>', unsafe_allow_html=True)
-    key_input = st.text_input("복사한 키 붙여넣기:", type="password")
+    key_input = st.text_input("복사한 API 키 붙여넣기:", type="password")
     if st.button("💾 키 영구 저장", type="primary", use_container_width=True) or key_input.strip():
         if key_input.strip():
             with st.spinner("금고 각인 중..."): save_api_key_permanently(key_input)
@@ -515,7 +516,7 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [메인 입력 구역]
+# [5. 메인 입력 구역 - 1단계 음성 & 2단계 사진 첨부]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -544,12 +545,11 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: [안 함] 과 [📁 사진 첨부하기] 2개 선택지만 두고, 사진 첨부하기 선택 시 순정 업로더 표시[cite: 4]
+# 2단계 사진 첨부: [안 함 (음성만)] 과 [📁 사진 첨부하기] 2개만 표시하고 단일 업로더로 작동
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
-    # 순정 st.file_uploader: 스마트폰에서 누르면 카메라 아이콘과 갤러리 파일 선택이 동시에 뜸[cite: 3]
     uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
@@ -561,7 +561,7 @@ st.write("")
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
 
 # =====================================================================
-# [분석 실행 로직]
+# [6. 분석 실행 및 구글 시트/드라이브/캘린더 연동]
 # =====================================================================
 def upload_audio_to_drive(creds, abytes, mtype, ftitle="Voice_Record"):
     authed_session = AuthorizedSession(creds)
@@ -683,7 +683,7 @@ if analyze_clicked:
         except Exception as e: st.error(f"⚠️ 오류 발생: {e}")
 
 # =====================================================================
-# [보관함 구역 - 하단 격리 분리 배치]
+# [7. 보관함 구역 - 하단 분리 배치]
 # =====================================================================
 st.markdown("<div style='margin:40px 0 20px 0; border-top: 2px dashed #cbd5e1;'></div>", unsafe_allow_html=True)
 st.markdown("<div style='font-size:16px; font-weight:800; color:#475569; margin-bottom:12px;'>📦 내 보관함 (과거 기록 및 보고서)</div>", unsafe_allow_html=True)
