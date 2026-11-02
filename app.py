@@ -26,6 +26,7 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
+# 대표님 요청 반영: 선택지를 '안 함'과 '사진 첨부하기' 딱 2개로 고정[cite: 4]
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
 
@@ -505,7 +506,7 @@ if not st.session_state["saved_api_key"]:
     with c1:
         if st.button("📖 발급 방법", type="primary", use_container_width=True): show_api_guide_modal()
     with c2: st.markdown('<a href="https://aistudio.google.com/app/apikey" target="_blank" style="display:flex; align-items:center; justify-content:center; border:2px solid #2563eb; color:#2563eb !important; padding:7px; border-radius:10px; font-weight:800; font-size:13px; text-decoration:none;">🔗 키 발급(새창)</a>', unsafe_allow_html=True)
-    key_input = st.text_input("복사한 API 키 붙여넣기:", type="password")
+    key_input = st.text_input("복사한 키 붙여넣기:", type="password")
     if st.button("💾 키 영구 저장", type="primary", use_container_width=True) or key_input.strip():
         if key_input.strip():
             with st.spinner("금고 각인 중..."): save_api_key_permanently(key_input)
@@ -543,18 +544,13 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 자체 기능으로 카메라 촬영과 파일 첨부 2가지 분리
-st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 카메라로 찍거나 갤러리에서 파일을 첨부하세요.</span></div>', unsafe_allow_html=True)
-img_input_mode = st.radio("사진 첨부 여부", IMAGE_MODE_OPTIONS, horizontal=True, label_visibility="collapsed")
+# 2단계 사진 첨부: [안 함] 과 [📁 사진 첨부하기] 2개 선택지만 두고, 사진 첨부하기 선택 시 순정 업로더 표시[cite: 4]
+st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
+img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
 if img_input_mode == IMAGE_MODE_OPTIONS[1]:
-    upload_type = st.radio("첨부 방식 선택", ["📸 카메라 촬영", "📁 파일 첨부"], horizontal=True)
-    
-    if upload_type == "📸 카메라 촬영":
-        uploaded_img = st.camera_input("카메라 촬영", label_visibility="collapsed")
-    else:
-        uploaded_img = st.file_uploader("사진 파일 선택", type=IMAGE_UPLOAD_TYPES, label_visibility="collapsed")
-        
+    # 순정 st.file_uploader: 스마트폰에서 누르면 카메라 아이콘과 갤러리 파일 선택이 동시에 뜸[cite: 3]
+    uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
         ext_lower = uploaded_img.name.split(".")[-1].lower() if "." in uploaded_img.name else "jpg"
