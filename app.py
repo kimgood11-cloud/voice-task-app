@@ -19,8 +19,8 @@ import extra_streamlit_components as stx
 # =====================================================================
 # [기본 환경 설정]
 # =====================================================================
-PAGE_TITLE = "AI음성변환"  # 어플 설치 시 적용되는 이름
-APP_TITLE = "개인형 맞춤 AI음성변환 시스템"  # 메인 화면 상단 헤더 타이틀
+PAGE_TITLE = "AI음성변환"  # 스마트폰 바탕화면 앱 설치 이름
+APP_TITLE = "개인 맞춤형 AI음성변환 시스템"  # 메인 화면 상단 헤더 타이틀
 APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
@@ -102,6 +102,17 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
 # [CSS 및 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
+
+st.markdown(
+    f"""
+    <head>
+        <title>{PAGE_TITLE}</title>
+        <meta name="apple-mobile-web-app-title" content="{PAGE_TITLE}">
+        <meta name="application-name" content="{PAGE_TITLE}">
+    </head>
+    """,
+    unsafe_allow_html=True
+)
 
 premium_css = f"""
 <style>
