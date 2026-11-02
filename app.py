@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import json
 import io
 import re
@@ -99,19 +100,70 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정]
+# [CSS 및 UI 설정 - 자바스크립트 기반 PWA 매니페스트 강제 덮어쓰기]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
-st.markdown(
+# 브라우저 최상단 <head>의 기본 Streamlit 매니페스트를 제거하고 'AI음성변환' 매니페스트로 강제 교체
+components.html(
     f"""
-    <head>
-        <title>{PAGE_TITLE}</title>
-        <meta name="apple-mobile-web-app-title" content="{PAGE_TITLE}">
-        <meta name="application-name" content="{PAGE_TITLE}">
-    </head>
+    <script>
+        try {{
+            const parentDoc = window.parent.document;
+            parentDoc.title = "{PAGE_TITLE}";
+            
+            // 메타 태그 강제 업데이트
+            const metaTags = {{
+                "application-name": "{PAGE_TITLE}",
+                "apple-mobile-web-app-title": "{PAGE_TITLE}",
+                "apple-mobile-web-app-capable": "yes",
+                "mobile-web-app-capable": "yes"
+            }};
+            
+            for (const [name, content] of Object.entries(metaTags)) {{
+                let meta = parentDoc.querySelector(`meta[name="${{name}}"]`);
+                if (!meta) {{
+                    meta = parentDoc.createElement('meta');
+                    meta.name = name;
+                    parentDoc.head.appendChild(meta);
+                }}
+                meta.content = content;
+            }}
+
+            // 기존 Streamlit 기본 manifest.json 링크 제거 후 커스텀 manifest 주입
+            const existingManifests = parentDoc.querySelectorAll('link[rel="manifest"]');
+            existingManifests.forEach(el => el.remove());
+
+            const customManifest = {{
+                "name": "{PAGE_TITLE}",
+                "short_name": "{PAGE_TITLE}",
+                "start_url": window.parent.location.origin + window.parent.location.pathname,
+                "display": "standalone",
+                "background_color": "#ffffff",
+                "theme_color": "#4338ca",
+                "icons": [
+                    {{
+                        "src": "https://cdn-icons-png.flaticon.com/512/2593/2593491.png",
+                        "sizes": "512x512",
+                        "type": "image/png",
+                        "purpose": "any maskable"
+                    }}
+                ]
+            }};
+
+            const manifestBlob = new Blob([JSON.stringify(customManifest)], {{type: 'application/json'}});
+            const manifestUrl = URL.createObjectURL(manifestBlob);
+            const newManifestLink = parentDoc.createElement('link');
+            newManifestLink.rel = 'manifest';
+            newManifestLink.href = manifestUrl;
+            parentDoc.head.appendChild(newManifestLink);
+        }} catch (e) {{
+            console.error("PWA Title Override Error:", e);
+        }}
+    </script>
     """,
-    unsafe_allow_html=True
+    height=0,
+    width=0
 )
 
 premium_css = f"""
@@ -121,6 +173,9 @@ premium_css = f"""
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
+    /* 컴포넌트용 투명 iframe 여백 제거 */
+    iframe[height="0"] {{ display: none !important; }}
+
     .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-bottom: 6px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: 18px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; line-height: 1.3 !important; letter-spacing: -0.5px !important; }}
@@ -632,6 +687,7 @@ def save_record_to_sheet(creds, row_data):
     sheet.append_row(row_data, value_input_option="RAW")
 
 if analyze_clicked:
+    req_count = st.session_state.get("daily_request_count", 0)
     if not user_api_key: st.warning("⚠️ 무료 Gemini API 키를 먼저 등록해 주세요.")
     elif not audio_bytes: st.warning("⚠️ 분석할 음성 데이터가 없습니다.")
     elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS: st.error("🛑 오늘의 무료 한도를 초과했습니다.")
