@@ -20,11 +20,14 @@ import extra_streamlit_components as stx
 # =====================================================================
 # [기본 환경 설정]
 # =====================================================================
-PAGE_TITLE = "AI음성변환"  # 스마트폰 바탕화면 앱 설치 이름
+PAGE_TITLE = "AI음성변환"  # 앱 및 브라우저 타이틀
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"  # 메인 화면 상단 헤더 타이틀
 APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
+
+# 2단계 사진 첨부 옵션 (카메라 단독 메뉴 제거 및 파일 첨부로 통합)
+IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
@@ -100,99 +103,9 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [CSS 및 UI 설정 - 독립형 PWA 매니페스트 및 주소창 숨김 강제 주입]
+# [CSS 및 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
-
-manifest_data = {
-    "name": PAGE_TITLE,
-    "short_name": PAGE_TITLE,
-    "start_url": REDIRECT_URI,
-    "display": "standalone",
-    "background_color": "#ffffff",
-    "theme_color": "#1e1b4b",
-    "orientation": "portrait",
-    "icons": [
-        {
-            "src": "https://cdn-icons-png.flaticon.com/512/2593/2593491.png",
-            "sizes": "192x192",
-            "type": "image/png",
-            "purpose": "any maskable"
-        },
-        {
-            "src": "https://cdn-icons-png.flaticon.com/512/2593/2593491.png",
-            "sizes": "512x512",
-            "type": "image/png",
-            "purpose": "any maskable"
-        }
-    ]
-}
-manifest_json_str = json.dumps(manifest_data, ensure_ascii=False)
-manifest_b64 = base64.b64encode(manifest_json_str.encode('utf-8')).decode('utf-8')
-custom_manifest_uri = f"data:application/manifest+json;charset=utf-8;base64,{manifest_b64}"
-
-components.html(
-    f"""
-    <script>
-        try {{
-            const parentDoc = window.parent.document;
-            parentDoc.title = "{PAGE_TITLE}";
-            
-            const forceStandalonePWA = () => {{
-                if (parentDoc.title !== "{PAGE_TITLE}") {{
-                    parentDoc.title = "{PAGE_TITLE}";
-                }}
-                
-                const manifests = parentDoc.querySelectorAll('link[rel="manifest"]');
-                if (manifests.length > 0) {{
-                    manifests.forEach((el, idx) => {{
-                        if (idx === 0) {{
-                            if (el.href !== "{custom_manifest_uri}") {{
-                                el.href = "{custom_manifest_uri}";
-                            }}
-                        }} else {{
-                            el.remove();
-                        }}
-                    }};
-                }} else {{
-                    const newLink = parentDoc.createElement('link');
-                    newLink.rel = 'manifest';
-                    newLink.href = "{custom_manifest_uri}";
-                    parentDoc.head.appendChild(newLink);
-                }}
-
-                const metaTags = {{
-                    "application-name": "{PAGE_TITLE}",
-                    "apple-mobile-web-app-title": "{PAGE_TITLE}",
-                    "apple-mobile-web-app-capable": "yes",
-                    "mobile-web-app-capable": "yes",
-                    "apple-mobile-web-app-status-bar-style": "black-translucent",
-                    "theme-color": "#1e1b4b"
-                }};
-                
-                for (const [name, content] of Object.entries(metaTags)) {{
-                    let meta = parentDoc.querySelector(`meta[name="${{name}}"]`);
-                    if (!meta) {{
-                        meta = parentDoc.createElement('meta');
-                        meta.name = name;
-                        parentDoc.head.appendChild(meta);
-                    }}
-                    if (meta.content !== content) {{
-                        meta.content = content;
-                    }}
-                }}
-            }};
-
-            forceStandalonePWA();
-            setInterval(forceStandalonePWA, 300);
-        }} catch (e) {{
-            console.error("Standalone PWA Error:", e);
-        }}
-    </script>
-    """,
-    height=0,
-    width=0
-)
 
 premium_css = f"""
 <style>
@@ -201,8 +114,6 @@ premium_css = f"""
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 1rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
-    iframe[height="0"] {{ display: none !important; }}
-
     .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-bottom: 6px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: 18px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; line-height: 1.3 !important; letter-spacing: -0.5px !important; }}
@@ -239,13 +150,22 @@ premium_css = f"""
         box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.5) !important;
     }}
 
-    div[data-testid="stCameraInput"] button:first-of-type span {{ display: none !important; }}
-    div[data-testid="stCameraInput"] button:first-of-type::after {{
-        content: "📸 사진 촬영" !important; display: block !important; font-weight: 700 !important; font-size: 15px !important; padding: 3px 0 !important;
+    /* 파일 업로더 버튼 한글화 및 터치 편의성 강화 */
+    [data-testid="stFileUploader"] button {{
+        background-color: #10b981 !important;
+        color: #ffffff !important;
+        border: none !important;
+        border-radius: 10px !important;
+        padding: 8px 16px !important;
+        font-weight: 800 !important;
+        width: 100% !important;
     }}
-    div[data-testid="stCameraInput"] button:nth-of-type(2) span {{ display: none !important; }}
-    div[data-testid="stCameraInput"] button:nth-of-type(2)::after {{
-        content: "🔄 다시 찍기" !important; display: block !important; font-weight: 700 !important; font-size: 15px !important; padding: 3px 0 !important;
+    [data-testid="stFileUploader"] button span {{ display: none !important; }}
+    [data-testid="stFileUploader"] button::after {{
+        content: "📸 카메라 촬영 / 📁 파일 선택하기" !important;
+        display: block !important;
+        font-size: 14px !important;
+        font-weight: 800 !important;
     }}
 </style>
 
@@ -368,7 +288,7 @@ def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
                 st.session_state["drive_audio_folder_id"] = folder_id
                 return folder_id
         folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
-        create_res = authed_session.post("https://www.googleapis.com/upload/drive/v3/files", json=folder_metadata)
+        create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata)
         if create_res.status_code in [200, 201]:
             folder_id = create_res.json().get("id")
             st.session_state["drive_audio_folder_id"] = folder_id
@@ -652,20 +572,16 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
-img_input_mode = st.radio("사진 첨부", ["안 함 (음성만)", "📁 파일", "📸 카메라"], horizontal=True)
+# 2단계: 대표님 아이디어 반영 - 카메라 단독 옵션 제거 및 '사진 첨부하기'로 통합
+st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 [📁 사진 첨부하기]를 눌러 카메라로 직접 찍거나 갤러리에서 선택하세요.</span></div>', unsafe_allow_html=True)
+img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
-if img_input_mode == "📁 파일":
-    uploaded_img = st.file_uploader("사진 선택", type=IMAGE_UPLOAD_TYPES)
+if img_input_mode == IMAGE_MODE_OPTIONS[1]:
+    uploaded_img = st.file_uploader("아래 초록색 버튼을 누르면 [카메라 촬영] 또는 [파일 선택] 창이 뜹니다.", type=IMAGE_UPLOAD_TYPES)
     if uploaded_img:
         image_bytes = uploaded_img.getvalue()
         image_mime_type = {"png": "image/png", "webp": "image/webp", "jpg": "image/jpeg", "jpeg": "image/jpeg"}.get(uploaded_img.name.split(".")[-1].lower(), "image/jpeg")
-        st.image(image_bytes, caption="✅ 이미지 대기 중", use_container_width=True)
-elif img_input_mode == "📸 카메라":
-    camera_img = st.camera_input("촬영")
-    if camera_img:
-        image_bytes = camera_img.getvalue()
-        st.success("✅ 사진 대기 중")
+        st.image(image_bytes, caption="✅ 사진 첨부 대기 중", use_container_width=True)
 
 st.write("")
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
@@ -726,7 +642,7 @@ if analyze_clicked:
             ctime = now.strftime("%Y-%m-%d %H:%M:%S")
             wkday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()] + "요일"
             
-            p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_image if 'has_image' in locals() else has_img)
+            p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
             client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
             schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
             config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
