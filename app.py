@@ -23,11 +23,13 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 선택지 (단일 업로더 구조 고정)
+# 2단계 사진 첨부 선택지 (예전 순정 단일 업로더 그대로 유지)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
 
-# 로그인 시 상단 주소창(X 버튼 임시 탭)이 뜨지 않도록 현재 창(_top)에서 이동
+# 초고속 자동 로그인 설정 매개변수
+AUTO_LOGIN_WAIT_SECONDS = 0.8
+ENABLE_SERVER_MEMORY_VAULT = True
 LOGIN_LINK_TARGET = "_top"
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
@@ -98,7 +100,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 및 상단 UI 설정 - 속도 저하 및 마이크 에러 유발 스크립트 완전 제거]
+# [3. CSS 및 상단 UI 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -153,7 +155,7 @@ cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
 all_cookies = cookie_manager.get_all() or {}
 
 # =====================================================================
-# [4. 초고속 구글 OAuth 2.0 인증 및 4중 영구 금고 (지연 시간 제거)]
+# [4. 0.5초 초고속 자동 로그인 & 4중 영구 금고]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -183,7 +185,13 @@ def get_flow_store():
     return {}
 flow_store = get_flow_store()
 
-# 1단계: 구글 로그인 콜백(code) 즉시 처리 (stateless 복구 지원으로 에러 방지)
+# [핵심 추가] 서버 메모리 금고: 앱을 닫았다 다시 열어도 쿠키 대기 없이 0.1초 만에 즉시 로그인 상태 복원
+@st.cache_resource
+def get_server_auth_vault():
+    return {"rt_encoded": "", "ak_decoded": "", "logged_out": False}
+server_vault = get_server_auth_vault()
+
+# 1단계: 구글 로그인 콜백(code) 처리
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -195,28 +203,48 @@ if "credentials" not in st.session_state and "code" in st.query_params:
         creds = flow.credentials
         st.session_state["credentials"] = creds
         st.session_state["logged_out_flag"] = False
+        server_vault["logged_out"] = False
         
-        prev_rt_encoded = all_cookies.get("voice_rt", "") or st.query_params.get("rt", "")
+        prev_rt_encoded = all_cookies.get("voice_rt", "") or st.query_params.get("rt", "") or server_vault.get("rt_encoded", "")
         final_rt = creds.refresh_token
         if not final_rt and prev_rt_encoded:
             try: final_rt = base64.b64decode(prev_rt_encoded.encode()).decode()
-            except: final_rt = prev_rt_encoded
+            except Exception: final_rt = prev_rt_encoded
             
+        existing_ak = st.query_params.get("ak", "") or all_cookies.get("voice_ak", "")
         st.query_params.clear()
+        
         if final_rt:
             encoded_rt = base64.b64encode(final_rt.encode()).decode()
             st.session_state["saved_rt_encoded"] = encoded_rt
+            server_vault["rt_encoded"] = encoded_rt
+            st.query_params["rt"] = encoded_rt
             cookie_manager.set("voice_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_rt_cookie_init")
+        if existing_ak:
+            st.query_params["ak"] = existing_ak
     except Exception:
         st.query_params.clear()
+        st.rerun()
 
-# 2단계: 저장된 토큰(쿠키/세션)으로 0.1초 만에 즉시 자동 로그인 (time.sleep 제거)
-if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag"):
-    encoded_rt = all_cookies.get("voice_rt", "") or st.query_params.get("rt", "") or st.session_state.get("saved_rt_encoded", "")
+# 2단계: 앱 재실행 시 버튼 클릭 없이 즉시 자동 로그인 복원 (서버 금고 -> URL -> 쿠키 순서)
+if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not server_vault.get("logged_out"):
+    raw_rt_server = server_vault.get("rt_encoded", "") if ENABLE_SERVER_MEMORY_VAULT else ""
+    raw_rt_param = st.query_params.get("rt", "")
+    raw_rt_cookie = all_cookies.get("voice_rt", "")
+    
+    encoded_rt = raw_rt_server or raw_rt_param or raw_rt_cookie or st.session_state.get("saved_rt_encoded", "")
+    
+    # 아직 쿠키가 도착하지 않은 첫 0.8초 동안 파란색 로그인 창이 잘못 뜨지 않도록 대기 후 즉시 복원
+    if not encoded_rt and not st.session_state.get("cookie_sync_checked"):
+        st.session_state["cookie_sync_checked"] = True
+        st.markdown("<div style='text-align: center; padding-top: 40px; font-weight: bold; color: #312e81;'>⚡ 자동 로그인 확인 중... (1초)</div>", unsafe_allow_html=True)
+        time.sleep(AUTO_LOGIN_WAIT_SECONDS)
+        st.rerun()
+        
     if encoded_rt:
         try:
             try: decoded_rt = base64.b64decode(encoded_rt.encode()).decode()
-            except: decoded_rt = encoded_rt
+            except Exception: decoded_rt = encoded_rt
             auto_creds = Credentials(
                 token=None,
                 refresh_token=decoded_rt,
@@ -228,7 +256,11 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
             auto_creds.refresh(Request())
             st.session_state["credentials"] = auto_creds
             st.session_state["saved_rt_encoded"] = encoded_rt
+            server_vault["rt_encoded"] = encoded_rt
+            if "rt" not in st.query_params:
+                st.query_params["rt"] = encoded_rt
         except Exception:
+            server_vault["rt_encoded"] = ""
             if "rt" in st.query_params:
                 del st.query_params["rt"]
 
@@ -342,7 +374,7 @@ def load_api_key_from_cloud_vault(creds):
         pass
     return ""
 
-# 미로그인 시: target="_top"을 적용하여 상단 주소창(X 버튼 창)이 뜨지 않고 현재 앱 창에서 바로 로그인되도록 개선
+# 최초 1회 미로그인 상태이거나 직접 로그아웃을 눌렀을 때만 파란색 로그인 버튼 표시
 if "credentials" not in st.session_state:
     if len(flow_store) > 100: flow_store.clear()
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
@@ -351,11 +383,16 @@ if "credentials" not in st.session_state:
     st.markdown(f"""
         <div class="login-card">
             <h4 style="margin:0 0 10px 0;">🔐 구글 워크스페이스 연동</h4>
-            <p style="font-size:13px; color:#475569; margin-bottom:15px;">단 1회 로그인으로 앱을 닫아도 시트/캘린더 연동이 평생 자동 유지됩니다.</p>
-            <a href="{auth_url}" target="{LOGIN_LINK_TARGET}" style="display:block; background:#2563eb; color:#ffffff !important; padding:14px; border-radius:12px; font-weight:800; text-decoration:none;">🚀 구글 로그인 시작 (현재 창 이동)</a>
+            <p style="font-size:13px; color:#475569; margin-bottom:15px;">최초 1회만 로그인하시면 다음부터는 이 화면 없이 즉시 열립니다.</p>
+            <a href="{auth_url}" target="{LOGIN_LINK_TARGET}" style="display:block; background:#2563eb; color:#ffffff !important; padding:14px; border-radius:12px; font-weight:800; text-decoration:none;">🚀 구글 로그인 시작 (최초 1회)</a>
         </div>
     """, unsafe_allow_html=True)
     st.stop()
+
+# 로그인 성공 시 쿠키 자동 보강
+if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"):
+    if not all_cookies.get("voice_rt"):
+        cookie_manager.set("voice_rt", st.session_state["saved_rt_encoded"], expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="reinforce_rt_cookie")
 
 def sync_today_usage_from_sheet(today_date_str):
     try:
@@ -372,6 +409,8 @@ def sync_today_usage_from_sheet(today_date_str):
                     decoded_ak = base64.b64decode(raw_encoded_ak.encode()).decode()
                     if decoded_ak.startswith("AIza"):
                         st.session_state["saved_api_key"] = decoded_ak
+                        server_vault["ak_decoded"] = decoded_ak
+                        st.query_params["ak"] = raw_encoded_ak
                 except Exception: pass
 
         if len(all_rows) <= 1: return 0, 0.0
@@ -389,9 +428,8 @@ now_kst = datetime.now(KST)
 today_str = now_kst.strftime("%Y-%m-%d")
 
 if "saved_api_key" not in st.session_state:
-    st.session_state["saved_api_key"] = ""
+    st.session_state["saved_api_key"] = server_vault.get("ak_decoded", "")
 
-# 세션당 최초 1회만 시트 동기화를 수행하여 화면 전환 속도를 비약적으로 향상
 if "sheet_synced_flag" not in st.session_state or st.session_state.get("usage_date") != today_str:
     st.session_state["usage_date"] = today_str
     s_count, s_mins = sync_today_usage_from_sheet(today_str)
@@ -408,6 +446,8 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
         try:
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
             st.session_state["saved_api_key"] = decoded_key
+            server_vault["ak_decoded"] = decoded_key
+            if "ak" not in st.query_params: st.query_params["ak"] = encoded_ak
             if not all_cookies.get("voice_ak"):
                 cookie_manager.set("voice_ak", encoded_ak, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="restore_ak_cookie")
         except Exception:
@@ -417,7 +457,9 @@ def save_api_key_permanently(raw_key):
     clean_key = raw_key.strip()
     encoded_val = base64.b64encode(clean_key.encode()).decode()
     st.session_state["saved_api_key"] = clean_key
+    server_vault["ak_decoded"] = clean_key
     st.session_state["key_cleared_flag"] = False
+    st.query_params["ak"] = encoded_val
     cookie_manager.set("voice_ak", encoded_val, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_ak_cookie")
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
@@ -439,7 +481,9 @@ if st.session_state["saved_api_key"]:
         if st.button("🔑 키 변경", use_container_width=True):
             if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
             st.session_state["saved_api_key"] = ""
+            server_vault["ak_decoded"] = ""
             st.session_state["key_cleared_flag"] = True
+            if "ak" in st.query_params: del st.query_params["ak"]
             try: cookie_manager.delete("voice_ak", key="del_ak_cookie")
             except Exception: pass
             st.rerun()
@@ -450,6 +494,9 @@ if st.session_state["saved_api_key"]:
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.session_state["key_cleared_flag"] = True
+            server_vault["rt_encoded"] = ""
+            server_vault["ak_decoded"] = ""
+            server_vault["logged_out"] = True
             st.query_params.clear()
             try:
                 cookie_manager.delete("voice_rt", key="del_rt_cookie")
@@ -464,6 +511,8 @@ else:
             if "credentials" in st.session_state: del st.session_state["credentials"]
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
+            server_vault["rt_encoded"] = ""
+            server_vault["logged_out"] = True
             st.query_params.clear()
             try: cookie_manager.delete("voice_rt", key="del_rt_cookie_no_ak")
             except Exception: pass
@@ -496,7 +545,7 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [5. 메인 입력 구역 - 마이크 에러 방지 및 순정 단일 업로더]
+# [5. 메인 입력 구역 - 1단계 음성 & 2단계 순정 단일 사진 업로더]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -525,7 +574,7 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 순정 단일 업로더 유지 (자바스크립트 충돌 완전 제거)
+# 2단계 사진 첨부: 예전에 사용하던 순정 단일 파일 업로더 그대로 유지
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
@@ -747,7 +796,7 @@ with st.expander("📊 주간 요약 보고서 자동 생성"):
                             ws.append_row(["총 건수", str(len(recent_rows))])
                             ws.append_row(headers)
                             for r in recent_rows: ws.append_row(r)
-                        durl = upload_text_to_drive(creds, report_md, f"Weekly_{datetime.now(KST).strftime('%Y%m%d')}.txt")
+                        durl = upload_text_to_drive(creds, report_md, f"Weekly_{datetime.now(KST).strftime('%Y-%m-%d')}.txt")
                         st.success(f"✨ 시트 전용 탭({rs_name}) 추가 완료!")
                     except Exception: st.warning("저장 중 일부 오류")
         except Exception as e: st.error(f"오류: {e}")
