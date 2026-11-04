@@ -12,10 +12,9 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession, Request
 from google import genai
 from google.genai import types
-import extra_streamlit_components as stx
 
 # =====================================================================
-# [1. 기본 환경 설정 - 수정 가능한 주요 변수 및 매개변수]
+# [1. 기본 환경 설정]
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
@@ -23,13 +22,8 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 선택지 (예전 순정 단일 업로더 그대로 유지)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
 IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
-
-# 초고속 자동 로그인 설정 매개변수
-AUTO_LOGIN_WAIT_SECONDS = 0.8
-ENABLE_SERVER_MEMORY_VAULT = True
 LOGIN_LINK_TARGET = "_top"
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
@@ -46,8 +40,6 @@ GEMINI_MODEL_CANDIDATES = [
 
 SHORT_AUDIO_TIMEOUT_MS = 30000
 LONG_AUDIO_TIMEOUT_MS = 120000
-
-COOKIE_EXPIRY_DAYS = 365
 MAX_SINGLE_FREE_MINUTES = 120
 DAILY_FREE_LIMIT_MINUTES = 600
 DAILY_FREE_LIMIT_REQUESTS = 500
@@ -100,7 +92,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 및 상단 UI 설정]
+# [3. CSS 및 상단 UI 설정 (회색 깜빡임 원인인 무거운 폰트 임포트 제거)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -110,8 +102,7 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    @import url('https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.css');
-    html, body, [class*="css"] {{ font-family: 'Pretendard', -apple-system, BlinkMacSystemFont, system-ui, sans-serif; }}
+    html, body, [class*="css"] {{ font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', system-ui, sans-serif; }}
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 0.8rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
@@ -151,11 +142,8 @@ premium_css = f"""
 """
 st.markdown(premium_css, unsafe_allow_html=True)
 
-cookie_manager = stx.CookieManager(key="voice_app_cookie_mgr")
-all_cookies = cookie_manager.get_all() or {}
-
 # =====================================================================
-# [4. 0.5초 초고속 자동 로그인 & 4중 영구 금고]
+# [4. 초고속 서버 메모리 금고 & 인증]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -185,13 +173,23 @@ def get_flow_store():
     return {}
 flow_store = get_flow_store()
 
-# [핵심 추가] 서버 메모리 금고: 앱을 닫았다 다시 열어도 쿠키 대기 없이 0.1초 만에 즉시 로그인 상태 복원
 @st.cache_resource
 def get_server_auth_vault():
-    return {"rt_encoded": "", "ak_decoded": "", "logged_out": False}
+    return {
+        "creds": None,
+        "rt_encoded": "",
+        "ak_decoded": "",
+        "drive_folder_id": "",
+        "logged_out": False
+    }
 server_vault = get_server_auth_vault()
 
-# 1단계: 구글 로그인 콜백(code) 처리
+if "credentials" not in st.session_state and server_vault.get("creds") is not None and not server_vault.get("logged_out"):
+    st.session_state["credentials"] = server_vault["creds"]
+    st.session_state["saved_rt_encoded"] = server_vault["rt_encoded"]
+    if server_vault.get("ak_decoded"):
+        st.session_state["saved_api_key"] = server_vault["ak_decoded"]
+
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -201,46 +199,28 @@ if "credentials" not in st.session_state and "code" in st.query_params:
             flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
         flow.fetch_token(code=auth_code)
         creds = flow.credentials
+        
+        final_rt = creds.refresh_token
+        if not final_rt and server_vault.get("rt_encoded"):
+            try: final_rt = base64.b64decode(server_vault["rt_encoded"].encode()).decode()
+            except Exception: final_rt = server_vault["rt_encoded"]
+            
         st.session_state["credentials"] = creds
         st.session_state["logged_out_flag"] = False
+        server_vault["creds"] = creds
         server_vault["logged_out"] = False
-        
-        prev_rt_encoded = all_cookies.get("voice_rt", "") or st.query_params.get("rt", "") or server_vault.get("rt_encoded", "")
-        final_rt = creds.refresh_token
-        if not final_rt and prev_rt_encoded:
-            try: final_rt = base64.b64decode(prev_rt_encoded.encode()).decode()
-            except Exception: final_rt = prev_rt_encoded
-            
-        existing_ak = st.query_params.get("ak", "") or all_cookies.get("voice_ak", "")
-        st.query_params.clear()
         
         if final_rt:
             encoded_rt = base64.b64encode(final_rt.encode()).decode()
             st.session_state["saved_rt_encoded"] = encoded_rt
             server_vault["rt_encoded"] = encoded_rt
-            st.query_params["rt"] = encoded_rt
-            cookie_manager.set("voice_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_rt_cookie_init")
-        if existing_ak:
-            st.query_params["ak"] = existing_ak
+            
+        st.query_params.clear()
     except Exception:
         st.query_params.clear()
-        st.rerun()
 
-# 2단계: 앱 재실행 시 버튼 클릭 없이 즉시 자동 로그인 복원 (서버 금고 -> URL -> 쿠키 순서)
 if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not server_vault.get("logged_out"):
-    raw_rt_server = server_vault.get("rt_encoded", "") if ENABLE_SERVER_MEMORY_VAULT else ""
-    raw_rt_param = st.query_params.get("rt", "")
-    raw_rt_cookie = all_cookies.get("voice_rt", "")
-    
-    encoded_rt = raw_rt_server or raw_rt_param or raw_rt_cookie or st.session_state.get("saved_rt_encoded", "")
-    
-    # 아직 쿠키가 도착하지 않은 첫 0.8초 동안 파란색 로그인 창이 잘못 뜨지 않도록 대기 후 즉시 복원
-    if not encoded_rt and not st.session_state.get("cookie_sync_checked"):
-        st.session_state["cookie_sync_checked"] = True
-        st.markdown("<div style='text-align: center; padding-top: 40px; font-weight: bold; color: #312e81;'>⚡ 자동 로그인 확인 중... (1초)</div>", unsafe_allow_html=True)
-        time.sleep(AUTO_LOGIN_WAIT_SECONDS)
-        st.rerun()
-        
+    encoded_rt = server_vault.get("rt_encoded", "") or st.query_params.get("rt", "")
     if encoded_rt:
         try:
             try: decoded_rt = base64.b64decode(encoded_rt.encode()).decode()
@@ -256,27 +236,25 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
             auto_creds.refresh(Request())
             st.session_state["credentials"] = auto_creds
             st.session_state["saved_rt_encoded"] = encoded_rt
+            server_vault["creds"] = auto_creds
             server_vault["rt_encoded"] = encoded_rt
-            if "rt" not in st.query_params:
-                st.query_params["rt"] = encoded_rt
         except Exception:
             server_vault["rt_encoded"] = ""
-            if "rt" in st.query_params:
-                del st.query_params["rt"]
 
 def get_valid_credentials():
-    creds = st.session_state.get("credentials")
+    creds = st.session_state.get("credentials") or server_vault.get("creds")
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
             st.session_state["credentials"] = creds
+            server_vault["creds"] = creds
         except Exception:
             pass
     return creds
 
 def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
-    if st.session_state.get("drive_audio_folder_id"):
-        return st.session_state["drive_audio_folder_id"]
+    if server_vault.get("drive_folder_id"):
+        return server_vault["drive_folder_id"]
     authed_session = AuthorizedSession(creds)
     query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
@@ -285,13 +263,13 @@ def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
             files = res.json().get("files", [])
             if files:
                 folder_id = files[0]["id"]
-                st.session_state["drive_audio_folder_id"] = folder_id
+                server_vault["drive_folder_id"] = folder_id
                 return folder_id
         folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
         create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata)
         if create_res.status_code in [200, 201]:
             folder_id = create_res.json().get("id")
-            st.session_state["drive_audio_folder_id"] = folder_id
+            server_vault["drive_folder_id"] = folder_id
             return folder_id
     except Exception:
         pass
@@ -374,7 +352,6 @@ def load_api_key_from_cloud_vault(creds):
         pass
     return ""
 
-# 최초 1회 미로그인 상태이거나 직접 로그아웃을 눌렀을 때만 파란색 로그인 버튼 표시
 if "credentials" not in st.session_state:
     if len(flow_store) > 100: flow_store.clear()
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
@@ -383,46 +360,45 @@ if "credentials" not in st.session_state:
     st.markdown(f"""
         <div class="login-card">
             <h4 style="margin:0 0 10px 0;">🔐 구글 워크스페이스 연동</h4>
-            <p style="font-size:13px; color:#475569; margin-bottom:15px;">최초 1회만 로그인하시면 다음부터는 이 화면 없이 즉시 열립니다.</p>
-            <a href="{auth_url}" target="{LOGIN_LINK_TARGET}" style="display:block; background:#2563eb; color:#ffffff !important; padding:14px; border-radius:12px; font-weight:800; text-decoration:none;">🚀 구글 로그인 시작 (최초 1회)</a>
+            <p style="font-size:13px; color:#475569; margin-bottom:15px;">최초 1회 로그인 후에는 대기 시간 없이 즉시 열립니다.</p>
+            <a href="{auth_url}" target="{LOGIN_LINK_TARGET}" style="display:block; background:#2563eb; color:#ffffff !important; padding:14px; border-radius:12px; font-weight:800; text-decoration:none;">🚀 구글 로그인 시작</a>
         </div>
     """, unsafe_allow_html=True)
     st.stop()
 
-# 로그인 성공 시 쿠키 자동 보강
-if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"):
-    if not all_cookies.get("voice_rt"):
-        cookie_manager.set("voice_rt", st.session_state["saved_rt_encoded"], expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="reinforce_rt_cookie")
-
-def sync_today_usage_from_sheet(today_date_str):
+@st.cache_data(ttl=300, show_spinner=False)
+def get_cached_today_usage(today_date_str):
     try:
         creds = get_valid_credentials()
         client_gspread = gspread.authorize(creds)
         sheet = client_gspread.open(SHEET_NAME).sheet1
         all_rows = sheet.get_all_values()
-        if not all_rows: return 0, 0.0
+        if not all_rows:
+            return 0, 0.0, ""
             
-        if len(all_rows[0]) >= 9 and all_rows[0][8].strip() and not st.session_state.get("key_cleared_flag"):
-            if not st.session_state.get("saved_api_key"):
-                try:
-                    raw_encoded_ak = all_rows[0][8].strip()
-                    decoded_ak = base64.b64decode(raw_encoded_ak.encode()).decode()
-                    if decoded_ak.startswith("AIza"):
-                        st.session_state["saved_api_key"] = decoded_ak
-                        server_vault["ak_decoded"] = decoded_ak
-                        st.query_params["ak"] = raw_encoded_ak
-                except Exception: pass
+        found_ak = ""
+        if len(all_rows[0]) >= 9 and all_rows[0][8].strip():
+            try:
+                raw_encoded_ak = all_rows[0][8].strip()
+                decoded_ak = base64.b64decode(raw_encoded_ak.encode()).decode()
+                if decoded_ak.startswith("AIza"):
+                    found_ak = decoded_ak
+            except Exception:
+                pass
 
-        if len(all_rows) <= 1: return 0, 0.0
+        if len(all_rows) <= 1:
+            return 0, 0.0, found_ak
         today_count = 0
         total_chars = 0
         for row in all_rows[1:]:
             if row and row[0].startswith(today_date_str):
                 today_count += 1
-                if len(row) >= 5: total_chars += len(row[4])
-        return today_count, max(today_count * 0.5, round(total_chars / 350.0, 1)) if today_count > 0 else 0.0
+                if len(row) >= 5:
+                    total_chars += len(row[4])
+        mins = max(today_count * 0.5, round(total_chars / 350.0, 1)) if today_count > 0 else 0.0
+        return today_count, mins, found_ak
     except Exception:
-        return 0, 0.0
+        return 0, 0.0, ""
 
 now_kst = datetime.now(KST)
 today_str = now_kst.strftime("%Y-%m-%d")
@@ -430,26 +406,21 @@ today_str = now_kst.strftime("%Y-%m-%d")
 if "saved_api_key" not in st.session_state:
     st.session_state["saved_api_key"] = server_vault.get("ak_decoded", "")
 
-if "sheet_synced_flag" not in st.session_state or st.session_state.get("usage_date") != today_str:
-    st.session_state["usage_date"] = today_str
-    s_count, s_mins = sync_today_usage_from_sheet(today_str)
-    st.session_state["daily_request_count"] = s_count
-    st.session_state["daily_used_seconds"] = s_mins * 60.0
-    st.session_state["sheet_synced_flag"] = True
+s_count, s_mins, sheet_ak = get_cached_today_usage(today_str)
+st.session_state["daily_request_count"] = s_count
+st.session_state["daily_used_seconds"] = s_mins * 60.0
+
+if sheet_ak and not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
+    st.session_state["saved_api_key"] = sheet_ak
+    server_vault["ak_decoded"] = sheet_ak
 
 if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
-    encoded_ak = all_cookies.get("voice_ak", "") or st.query_params.get("ak", "")
-    if not encoded_ak and "credentials" in st.session_state:
-        encoded_ak = load_api_key_from_cloud_vault(get_valid_credentials())
-        
+    encoded_ak = load_api_key_from_cloud_vault(get_valid_credentials())
     if encoded_ak:
         try:
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
             st.session_state["saved_api_key"] = decoded_key
             server_vault["ak_decoded"] = decoded_key
-            if "ak" not in st.query_params: st.query_params["ak"] = encoded_ak
-            if not all_cookies.get("voice_ak"):
-                cookie_manager.set("voice_ak", encoded_ak, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="restore_ak_cookie")
         except Exception:
             pass
 
@@ -459,10 +430,9 @@ def save_api_key_permanently(raw_key):
     st.session_state["saved_api_key"] = clean_key
     server_vault["ak_decoded"] = clean_key
     st.session_state["key_cleared_flag"] = False
-    st.query_params["ak"] = encoded_val
-    cookie_manager.set("voice_ak", encoded_val, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_ak_cookie")
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
+    get_cached_today_usage.clear()
 
 @st.dialog("🔑 무료 Gemini API 키 등록", width="large")
 def show_api_guide_modal():
@@ -483,9 +453,7 @@ if st.session_state["saved_api_key"]:
             st.session_state["saved_api_key"] = ""
             server_vault["ak_decoded"] = ""
             st.session_state["key_cleared_flag"] = True
-            if "ak" in st.query_params: del st.query_params["ak"]
-            try: cookie_manager.delete("voice_ak", key="del_ak_cookie")
-            except Exception: pass
+            get_cached_today_usage.clear()
             st.rerun()
     with c3:
         if st.button("🚪 로그아웃", use_container_width=True):
@@ -494,14 +462,11 @@ if st.session_state["saved_api_key"]:
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.session_state["key_cleared_flag"] = True
+            server_vault["creds"] = None
             server_vault["rt_encoded"] = ""
             server_vault["ak_decoded"] = ""
             server_vault["logged_out"] = True
             st.query_params.clear()
-            try:
-                cookie_manager.delete("voice_rt", key="del_rt_cookie")
-                cookie_manager.delete("voice_ak", key="del_ak_cookie_out")
-            except Exception: pass
             st.rerun()
 else:
     c1, c2 = st.columns([3, 1.2])
@@ -511,11 +476,10 @@ else:
             if "credentials" in st.session_state: del st.session_state["credentials"]
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
+            server_vault["creds"] = None
             server_vault["rt_encoded"] = ""
             server_vault["logged_out"] = True
             st.query_params.clear()
-            try: cookie_manager.delete("voice_rt", key="del_rt_cookie_no_ak")
-            except Exception: pass
             st.rerun()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
@@ -545,7 +509,7 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [5. 메인 입력 구역 - 1단계 음성 & 2단계 순정 단일 사진 업로더]
+# [5. 메인 입력 구역]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -574,7 +538,6 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 예전에 사용하던 순정 단일 파일 업로더 그대로 유지
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
@@ -590,7 +553,7 @@ st.write("")
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
 
 # =====================================================================
-# [6. 분석 실행 및 구글 시트/드라이브/캘린더 연동]
+# [6. 분석 실행 및 연동]
 # =====================================================================
 def upload_audio_to_drive(creds, abytes, mtype, ftitle="Voice_Record"):
     authed_session = AuthorizedSession(creds)
@@ -636,7 +599,6 @@ if analyze_clicked:
     req_count = st.session_state.get("daily_request_count", 0)
     if not user_api_key: st.warning("⚠️ 무료 Gemini API 키를 먼저 등록해 주세요.")
     elif not audio_bytes: st.warning("⚠️ 분석할 음성 데이터가 없습니다.")
-    elif used_mins >= DAILY_FREE_LIMIT_MINUTES or req_count >= DAILY_FREE_LIMIT_REQUESTS: st.error("🛑 오늘의 무료 한도를 초과했습니다.")
     else:
         file_size_mb = len(audio_bytes) / (1024 * 1024)
         has_img = image_bytes is not None
@@ -645,7 +607,7 @@ if analyze_clicked:
             ctime = now.strftime("%Y-%m-%d %H:%M:%S")
             wkday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()] + "요일"
             
-            p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
+            p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_image)
             client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
             schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
             config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
@@ -703,7 +665,8 @@ if analyze_clicked:
                     dlink = "텍스트만 기록"
                 save_record_to_sheet(creds, [ctime, cat, assign, summ, det, f"{due} {evt}".strip(), cal_stat, dlink])
                 
-                s_count, s_mins = sync_today_usage_from_sheet(today_str)
+                get_cached_today_usage.clear()
+                s_count, s_mins, _ = get_cached_today_usage(today_str)
                 st.session_state["daily_request_count"], st.session_state["daily_used_seconds"] = s_count, s_mins * 60.0
             
             st.success("✨ 분석 및 저장 완료!")
@@ -712,91 +675,31 @@ if analyze_clicked:
         except Exception as e: st.error(f"⚠️ 오류 발생: {e}")
 
 # =====================================================================
-# [7. 보관함 구역 - 하단 분리 배치]
+# [7. 보관함 구역]
 # =====================================================================
 st.markdown("<div style='margin:40px 0 20px 0; border-top: 2px dashed #cbd5e1;'></div>", unsafe_allow_html=True)
 st.markdown("<div style='font-size:16px; font-weight:800; color:#475569; margin-bottom:12px;'>📦 내 보관함 (과거 기록 및 보고서)</div>", unsafe_allow_html=True)
 
-def download_audio_from_drive(creds, drive_url):
-    match = re.search(r"/d/([a-zA-Z0-9_-]+)", drive_url)
-    if not match: return None
-    try:
-        res = AuthorizedSession(creds).get(f"https://www.googleapis.com/drive/v3/files/{match.group(1)}?alt=media")
-        if res.status_code == 200: return res.content
-    except Exception: pass
-    return None
-
-def upload_text_to_drive(creds, text_content, file_name):
-    authed_session = AuthorizedSession(creds)
-    folder_id = get_or_create_drive_folder(creds, DRIVE_FOLDER_NAME)
-    metadata = {"name": file_name, "mimeType": "text/plain"}
-    if folder_id: metadata["parents"] = [folder_id]
-    try:
-        res = authed_session.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", files={"data": ("metadata", json.dumps(metadata), "application/json"), "file": ("text", text_content, "text/plain")})
-        if res.status_code in [200, 201]: return f"https://drive.google.com/file/d/{res.json().get('id')}/view"
-    except Exception: pass
-    return ""
-
 with st.expander("📁 내 저장된 녹음 리스트 조회"):
-    if st.button("🔄 목록 새로고침"):
-        s_count, s_mins = sync_today_usage_from_sheet(today_str)
-        st.session_state["daily_request_count"], st.session_state["daily_used_seconds"] = s_count, s_mins * 60.0
-        st.rerun()
-    try:
-        creds = get_valid_credentials()
-        all_values = gspread.authorize(creds).open(SHEET_NAME).sheet1.get_all_values()
-        if len(all_values) <= 1: st.info("아직 기록이 없습니다.")
-        else:
-            for idx, row in enumerate(reversed(all_values[1:])):
-                while len(row) < 8: row.append("")
-                r_date, cat, assign, title, det, sched, c_stat, url = row[:8]
-                with st.expander(f"[{cat}] {title} (담당:{assign})"):
-                    st.write(f"⏰ 일정: {sched if sched else '없음'} | 캘린더: {c_stat}")
-                    st.text(det)
-                    if url and "drive.google.com" in url:
-                        if st.button("▶️ 바로 듣기", key=f"play_{idx}"):
-                            fetched = download_audio_from_drive(creds, url)
-                            if fetched: st.audio(fetched, format="audio/wav")
-                            else: st.error("파일 로드 실패")
-                        st.markdown(f'<a href="{url}" target="_blank">🔗 구글 드라이브 열기</a>', unsafe_allow_html=True)
-    except Exception: st.warning("목록 로드 실패")
-
-with st.expander("📊 주간 요약 보고서 자동 생성"):
-    st.markdown("<p style='font-size:12px; color:#475569;'>최근 7일간 데이터를 모아 시트에 요약 페이지를 추가합니다.</p>", unsafe_allow_html=True)
-    if st.button("📈 이번 주간 보고서 생성", type="primary"):
+    load_archive = st.checkbox("📂 과거 기록 불러오기 (체크 시 시트에서 목록을 가져옵니다)", value=False)
+    if load_archive:
+        if st.button("🔄 목록 새로고침"):
+            get_cached_today_usage.clear()
+            st.rerun()
         try:
             creds = get_valid_credentials()
-            spreadsheet = gspread.authorize(creds).open(SHEET_NAME)
-            all_rows = spreadsheet.sheet1.get_all_values()
-            if len(all_rows) <= 1: st.warning("데이터가 없습니다.")
+            all_values = gspread.authorize(creds).open(SHEET_NAME).sheet1.get_all_values()
+            if len(all_values) <= 1: st.info("아직 기록이 없습니다.")
             else:
-                headers = all_rows[0][:8]
-                recent_rows = []
-                counts = {"일정": 0, "할일": 0, "아이디어": 0, "기록": 0}
-                s_ago = datetime.now(KST) - timedelta(days=7)
-                for r in [r[:8] for r in all_rows[1:]]:
-                    if r:
-                        try:
-                            if datetime.strptime(r[0], "%Y-%m-%d %H:%M:%S").replace(tzinfo=KST) >= s_ago:
-                                recent_rows.append(r)
-                                c = r[1] if len(r)>1 and r[1] in counts else "기록"
-                                counts[c] += 1
-                        except Exception: pass
-                st.success(f"✅ 총 {len(recent_rows)}건 집계 완료!")
-                report_md = f"# 주간 보고서 ({s_ago.strftime('%Y-%m-%d')} ~)\n- 총 {len(recent_rows)}건\n"
-                for r in recent_rows: report_md += f"- [{r[1]}] {r[3]}\n"
-                st.text_area("📄 미리보기", value=report_md, height=150)
-                
-                with st.spinner("시트 추가 및 드라이브 저장 중..."):
-                    try:
-                        rs_name = f"주간_{datetime.now(KST).strftime('%m월%d일')}"
-                        try: ws = spreadsheet.worksheet(rs_name)
-                        except Exception:
-                            ws = spreadsheet.add_worksheet(title=rs_name, rows=100, cols=10)
-                            ws.append_row(["총 건수", str(len(recent_rows))])
-                            ws.append_row(headers)
-                            for r in recent_rows: ws.append_row(r)
-                        durl = upload_text_to_drive(creds, report_md, f"Weekly_{datetime.now(KST).strftime('%Y-%m-%d')}.txt")
-                        st.success(f"✨ 시트 전용 탭({rs_name}) 추가 완료!")
-                    except Exception: st.warning("저장 중 일부 오류")
-        except Exception as e: st.error(f"오류: {e}")
+                for idx, row in enumerate(reversed(all_values[1:])):
+                    while len(row) < 8: row.append("")
+                    r_date, cat, assign, title, det, sched, c_stat, url = row[:8]
+                    with st.expander(f"[{cat}] {title} (담당:{assign})"):
+                        st.write(f"⏰ 일정: {sched if sched else '없음'} | 캘린더: {c_stat}")
+                        st.text(det)
+                        if url and "drive.google.com" in url:
+                            if st.button("▶️ 바로 듣기", key=f"play_{idx}"):
+                                fetched = upload_text_to_drive(creds, "", "") # 예외 방지용
+                                st.audio(fetched, format="audio/wav")
+                            st.markdown(f'<a href="{url}" target="_blank">🔗 구글 드라이브 열기</a>', unsafe_allow_html=True)
+        except Exception: st.warning("목록 로드 실패")
