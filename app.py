@@ -14,7 +14,7 @@ from google import genai
 from google.genai import types
 
 # =====================================================================
-# [1. 기본 환경 설정 - 수정 가능한 주요 변수 및 매개변수]
+# [1. 기본 환경 설정]
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
@@ -22,9 +22,12 @@ APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
-# 2단계 사진 첨부 선택지 (순정 단일 업로더 고정)
 IMAGE_MODE_OPTIONS = ["안 함 (음성만)", "📁 사진 첨부하기"]
-IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png"]
+IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp"]
+
+# 다중 사용자 환경에서는 30초 회색 로딩 방지를 위해 시작 시 자동 동기화 해제
+AUTO_SYNC_USAGE_ON_START = False
+LOGIN_LINK_TARGET = "_top"
 
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
@@ -40,7 +43,6 @@ GEMINI_MODEL_CANDIDATES = [
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
 LONG_AUDIO_TIMEOUT_MS = 120000
-USAGE_CACHE_SECONDS = 300
 
 MAX_SINGLE_FREE_MINUTES = 120
 DAILY_FREE_LIMIT_MINUTES = 600
@@ -94,11 +96,15 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 및 상단 UI 설정 (무거운 쿠키 매니저 및 외부 폰트 완전 제거)]
+# [3. CSS 및 상단 UI]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
 premium_css = f"""
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="theme-color" content="#1e1b4b">
 <style>
     html, body, [class*="css"] {{ font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', system-ui, sans-serif; }}
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
@@ -116,7 +122,7 @@ premium_css = f"""
     .usage-label {{ font-size: 11px; color: #64748b; font-weight: 600; margin-bottom: 3px; }}
     .usage-value {{ font-size: 14px; font-weight: 800; color: #2563eb; }}
     
-    .login-card {{ background: #ffffff; border: 2px solid #e2e8f0; border-radius: 16px; padding: 20px 16px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); margin-bottom: 12px; }}
+    .login-card {{ background: #ffffff; border: 2px solid #e2e8f0; border-radius: 16px; padding: 22px 18px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); margin-bottom: 12px; }}
     .mic-guide-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #000000; border-radius: 12px; padding: 12px 14px; margin-top: 6px; margin-bottom: 12px; word-break: keep-all; }}
     
     [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; }}
@@ -126,6 +132,7 @@ premium_css = f"""
         color: #ffffff !important;
         border: none !important;
         border-radius: 12px !important;
+        box-shadow: 0 8px 16px -4px rgba(67, 56, 202, 0.5), 0 3px 5px -1px rgba(0, 0, 0, 0.05) !important;
         font-weight: 800 !important;
         padding: 0.6rem 1rem !important;
     }}
@@ -140,7 +147,7 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 # =====================================================================
-# [4. 초고속 구글 OAuth 2.0 인증 (CookieManager 제거로 30초 회색 멈춤 해결)]
+# [4. 다중 사용자(Multi-User) 전용 개별 세션 인증]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -170,23 +177,16 @@ def get_flow_store():
     return {}
 flow_store = get_flow_store()
 
-@st.cache_resource
-def get_server_vault():
-    return {
-        "creds": None,
+# 사용자별 개별 금고 초기화
+if "user_vault" not in st.session_state:
+    st.session_state["user_vault"] = {
         "rt_encoded": "",
         "ak_encoded": "",
         "drive_folder_id": "",
         "logged_out": False
     }
-server_vault = get_server_vault()
 
-# 1. 서버 메모리에 이미 로그인 정보가 살아있으면 0.01초 만에 즉시 통과!
-if "credentials" not in st.session_state and server_vault.get("creds") is not None and not server_vault.get("logged_out") and not st.session_state.get("logged_out_flag"):
-    st.session_state["credentials"] = server_vault["creds"]
-    st.session_state["saved_rt_encoded"] = server_vault["rt_encoded"]
-
-# 2. 구글 로그인 후 돌아왔을 때 콜백(code) 즉시 처리
+# 1. 구글 로그인 버튼 클릭 직후 콜백(code) 처리
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -196,34 +196,35 @@ if "credentials" not in st.session_state and "code" in st.query_params:
             flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
         flow.fetch_token(code=auth_code)
         creds = flow.credentials
+        
+        final_rt = creds.refresh_token
+        if not final_rt:
+            final_rt = st.session_state["user_vault"]["rt_encoded"]
+            
         st.session_state["credentials"] = creds
         st.session_state["logged_out_flag"] = False
-        server_vault["creds"] = creds
-        server_vault["logged_out"] = False
+        st.session_state["user_vault"]["logged_out"] = False
         
-        prev_rt_encoded = st.query_params.get("rt", "") or server_vault.get("rt_encoded", "")
-        final_rt = creds.refresh_token
-        if not final_rt and prev_rt_encoded:
-            try: final_rt = base64.b64decode(prev_rt_encoded.encode()).decode()
-            except Exception: final_rt = prev_rt_encoded
-            
-        existing_ak = st.query_params.get("ak", "") or server_vault.get("ak_encoded", "")
-        st.query_params.clear()
         if final_rt:
-            encoded_rt = base64.b64encode(final_rt.encode()).decode()
+            encoded_rt = base64.b64encode(final_rt.encode()).decode() if not final_rt.startswith("1//") else final_rt
             st.session_state["saved_rt_encoded"] = encoded_rt
-            server_vault["rt_encoded"] = encoded_rt
+            st.session_state["user_vault"]["rt_encoded"] = encoded_rt
             st.query_params["rt"] = encoded_rt
+            
+        existing_ak = st.query_params.get("ak", "")
         if existing_ak:
-            st.query_params["ak"] = existing_ak
-            server_vault["ak_encoded"] = existing_ak
+            st.session_state["user_vault"]["ak_encoded"] = existing_ak
+            
+        # 보안을 위해 code는 지우되 자동 복구를 위해 rt 파라미터는 유지
+        if "code" in st.query_params: del st.query_params["code"]
+        if "state" in st.query_params: del st.query_params["state"]
     except Exception:
         st.query_params.clear()
 
-# 3. URL 파라미터 또는 secrets.toml에서 자동 로그인 복원 (time.sleep 대기 완전 제거)
-if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not server_vault.get("logged_out"):
-    secret_rt = oauth_secrets.get("refresh_token", "")
-    encoded_rt = server_vault.get("rt_encoded", "") or st.query_params.get("rt", "") or secret_rt
+# 2. 브라우저 URL 파라미터를 통한 개인별 세션 복구
+if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not st.session_state["user_vault"]["logged_out"]:
+    encoded_rt = st.query_params.get("rt", "") or st.session_state["user_vault"]["rt_encoded"]
+    
     if encoded_rt:
         try:
             try: decoded_rt = base64.b64decode(encoded_rt.encode()).decode()
@@ -239,27 +240,25 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
             auto_creds.refresh(Request())
             st.session_state["credentials"] = auto_creds
             st.session_state["saved_rt_encoded"] = encoded_rt
-            server_vault["creds"] = auto_creds
-            server_vault["rt_encoded"] = encoded_rt
+            st.session_state["user_vault"]["rt_encoded"] = encoded_rt
             if "rt" not in st.query_params:
                 st.query_params["rt"] = encoded_rt
         except Exception:
-            server_vault["rt_encoded"] = ""
+            st.session_state["user_vault"]["rt_encoded"] = ""
             if "rt" in st.query_params:
                 del st.query_params["rt"]
 
 def get_valid_credentials():
-    creds = st.session_state.get("credentials") or server_vault.get("creds")
+    creds = st.session_state.get("credentials")
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
             st.session_state["credentials"] = creds
-            server_vault["creds"] = creds
         except Exception:
             pass
     return creds
 
-# 미로그인 시: 먹통이 절대 발생하지 않는 스트림릿 순정 공식 버튼(st.link_button) 적용!
+# 미로그인 시: 공식 링크 버튼 렌더링
 if "credentials" not in st.session_state:
     if len(flow_store) > 100: flow_store.clear()
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
@@ -268,33 +267,33 @@ if "credentials" not in st.session_state:
     st.markdown("""
         <div class="login-card">
             <h4 style="margin:0 0 8px 0;">🔐 구글 워크스페이스 연동</h4>
-            <p style="font-size:13px; color:#475569; margin:0;">아래 공식 로그인 버튼을 누르면 즉시 연동됩니다.</p>
+            <p style="font-size:13px; color:#475569; margin:0;">각자의 구글 계정으로 로그인하여 사용하세요.</p>
         </div>
     """, unsafe_allow_html=True)
     st.link_button("🚀 구글 로그인 시작 (클릭)", auth_url, type="primary", use_container_width=True)
     st.stop()
 
 # =====================================================================
-# [5. 구글 드라이브/시트 4중 금고 및 사용량 고속 캐싱]
+# [5. 개인별 구글 드라이브/시트 조회 로직]
 # =====================================================================
 def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
-    if server_vault.get("drive_folder_id"):
-        return server_vault["drive_folder_id"]
+    if st.session_state["user_vault"].get("drive_folder_id"):
+        return st.session_state["user_vault"]["drive_folder_id"]
     authed_session = AuthorizedSession(creds)
     query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
-        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": query, "fields": "files(id, name)", "pageSize": 1}, timeout=10)
+        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": query, "fields": "files(id, name)", "pageSize": 1}, timeout=5)
         if res.status_code == 200:
             files = res.json().get("files", [])
             if files:
                 folder_id = files[0]["id"]
-                server_vault["drive_folder_id"] = folder_id
+                st.session_state["user_vault"]["drive_folder_id"] = folder_id
                 return folder_id
         folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
-        create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata, timeout=10)
+        create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata, timeout=5)
         if create_res.status_code in [200, 201]:
             folder_id = create_res.json().get("id")
-            server_vault["drive_folder_id"] = folder_id
+            st.session_state["user_vault"]["drive_folder_id"] = folder_id
             return folder_id
     except Exception:
         pass
@@ -329,16 +328,16 @@ def save_api_key_to_cloud_vault(creds, encoded_key):
         folder_id = get_or_create_drive_folder(creds, DRIVE_FOLDER_NAME)
         q_str = f"name = '{VAULT_FILE_NAME}' and trashed = false"
         if folder_id: q_str = f"'{folder_id}' in parents and name = '{VAULT_FILE_NAME}' and trashed = false"
-        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": q_str, "fields": "files(id)", "pageSize": 5}, timeout=10)
+        res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": q_str, "fields": "files(id)", "pageSize": 5}, timeout=5)
         if res.status_code == 200:
             for f in res.json().get("files", []):
-                authed_session.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}", timeout=10)
+                authed_session.delete(f"https://www.googleapis.com/drive/v3/files/{f['id']}", timeout=5)
         if encoded_key:
             metadata = {"name": VAULT_FILE_NAME, "mimeType": "application/json"}
             if folder_id: metadata["parents"] = [folder_id]
             vault_payload = json.dumps({"ak": encoded_key, "updated": datetime.now(KST).strftime("%Y-%m-%d %H:%M:%S")})
             files = {"data": ("metadata", json.dumps(metadata), "application/json"), "file": ("vault", vault_payload.encode("utf-8"), "application/json")}
-            authed_session.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", files=files, timeout=10)
+            authed_session.post("https://www.googleapis.com/upload/drive/v3/files?uploadType=multipart", files=files, timeout=5)
     except Exception:
         pass
 
@@ -364,12 +363,12 @@ def load_api_key_from_cloud_vault(creds):
         folder_id = get_or_create_drive_folder(creds, DRIVE_FOLDER_NAME)
         for q_str in [f"'{folder_id}' in parents and name = '{VAULT_FILE_NAME}' and trashed = false" if folder_id else "", f"name = '{VAULT_FILE_NAME}' and trashed = false"]:
             if not q_str: continue
-            res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": q_str, "fields": "files(id)", "pageSize": 1}, timeout=10)
+            res = authed_session.get("https://www.googleapis.com/drive/v3/files", params={"q": q_str, "fields": "files(id)", "pageSize": 1}, timeout=5)
             if res.status_code == 200:
                 files = res.json().get("files", [])
                 if files:
                     file_id = files[0]["id"]
-                    content_res = authed_session.get(f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media", timeout=10)
+                    content_res = authed_session.get(f"https://www.googleapis.com/drive/v3/files/{file_id}?alt=media", timeout=5)
                     if content_res.status_code == 200:
                         ak_val = content_res.json().get("ak", "").strip()
                         if ak_val: return ak_val
@@ -377,7 +376,6 @@ def load_api_key_from_cloud_vault(creds):
         pass
     return ""
 
-@st.cache_data(ttl=USAGE_CACHE_SECONDS, show_spinner=False)
 def sync_today_usage_from_sheet(today_date_str):
     try:
         creds = get_valid_credentials()
@@ -408,30 +406,35 @@ today_str = now_kst.strftime("%Y-%m-%d")
 if "saved_api_key" not in st.session_state:
     st.session_state["saved_api_key"] = ""
 
-s_count, s_mins, raw_sheet_ak = sync_today_usage_from_sheet(today_str)
-st.session_state["daily_request_count"] = s_count
-st.session_state["daily_used_seconds"] = s_mins * 60.0
+if "daily_request_count" not in st.session_state:
+    st.session_state["daily_request_count"] = 0
+    st.session_state["daily_used_seconds"] = 0.0
 
-if raw_sheet_ak and not st.session_state.get("key_cleared_flag") and not st.session_state.get("saved_api_key"):
-    try:
-        decoded_ak = base64.b64decode(raw_sheet_ak.encode()).decode()
-        if decoded_ak.startswith("AIza"):
-            st.session_state["saved_api_key"] = decoded_ak
-            server_vault["ak_encoded"] = raw_sheet_ak
-            if "ak" not in st.query_params:
-                st.query_params["ak"] = raw_sheet_ak
-    except Exception:
-        pass
+if AUTO_SYNC_USAGE_ON_START and not st.session_state.get("usage_synced_once"):
+    st.session_state["usage_synced_once"] = True
+    s_count, s_mins, raw_sheet_ak = sync_today_usage_from_sheet(today_str)
+    st.session_state["daily_request_count"] = s_count
+    st.session_state["daily_used_seconds"] = s_mins * 60.0
+    if raw_sheet_ak and not st.session_state.get("key_cleared_flag") and not st.session_state.get("saved_api_key"):
+        try:
+            decoded_ak = base64.b64decode(raw_sheet_ak.encode()).decode()
+            if decoded_ak.startswith("AIza"):
+                st.session_state["saved_api_key"] = decoded_ak
+                st.session_state["user_vault"]["ak_encoded"] = raw_sheet_ak
+                if "ak" not in st.query_params:
+                    st.query_params["ak"] = raw_sheet_ak
+        except Exception:
+            pass
 
 if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
-    encoded_ak = st.query_params.get("ak", "") or server_vault.get("ak_encoded", "")
+    encoded_ak = st.query_params.get("ak", "") or st.session_state["user_vault"]["ak_encoded"]
     if not encoded_ak and "credentials" in st.session_state:
         encoded_ak = load_api_key_from_cloud_vault(get_valid_credentials())
     if encoded_ak:
         try:
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
             st.session_state["saved_api_key"] = decoded_key
-            server_vault["ak_encoded"] = encoded_ak
+            st.session_state["user_vault"]["ak_encoded"] = encoded_ak
             if "ak" not in st.query_params:
                 st.query_params["ak"] = encoded_ak
         except Exception:
@@ -442,20 +445,19 @@ def save_api_key_permanently(raw_key):
     encoded_val = base64.b64encode(clean_key.encode()).decode()
     st.session_state["saved_api_key"] = clean_key
     st.session_state["key_cleared_flag"] = False
-    server_vault["ak_encoded"] = encoded_val
+    st.session_state["user_vault"]["ak_encoded"] = encoded_val
     st.query_params["ak"] = encoded_val
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
-    sync_today_usage_from_sheet.clear()
 
 @st.dialog("🔑 무료 Gemini API 키 등록", width="large")
 def show_api_guide_modal():
-    st.markdown("<p style='font-size:13px;'>최초 1회만 등록하면 드라이브 금고에 백업되어 평생 유지됩니다.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:13px;'>최초 1회만 등록하면 개별 계정 금고에 유지됩니다.</p>", unsafe_allow_html=True)
     st.link_button("👉 API 키 발급받기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
     modal_key = st.text_input("복사한 키 붙여넣기:", type="password")
-    if st.button("✅ 영구 저장", type="primary", use_container_width=True):
+    if st.button("✅ 저장", type="primary", use_container_width=True):
         if modal_key.strip():
-            with st.spinner("금고 백업 중..."): save_api_key_permanently(modal_key)
+            with st.spinner("저장 중..."): save_api_key_permanently(modal_key)
             st.rerun()
 
 if st.session_state["saved_api_key"]:
@@ -466,9 +468,8 @@ if st.session_state["saved_api_key"]:
             if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
-            server_vault["ak_encoded"] = ""
+            st.session_state["user_vault"]["ak_encoded"] = ""
             if "ak" in st.query_params: del st.query_params["ak"]
-            sync_today_usage_from_sheet.clear()
             st.rerun()
     with c3:
         if st.button("🚪 로그아웃", use_container_width=True):
@@ -477,10 +478,9 @@ if st.session_state["saved_api_key"]:
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.session_state["key_cleared_flag"] = True
-            server_vault["creds"] = None
-            server_vault["rt_encoded"] = ""
-            server_vault["ak_encoded"] = ""
-            server_vault["logged_out"] = True
+            st.session_state["user_vault"]["rt_encoded"] = ""
+            st.session_state["user_vault"]["ak_encoded"] = ""
+            st.session_state["user_vault"]["logged_out"] = True
             st.query_params.clear()
             st.rerun()
 else:
@@ -491,9 +491,8 @@ else:
             if "credentials" in st.session_state: del st.session_state["credentials"]
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
-            server_vault["creds"] = None
-            server_vault["rt_encoded"] = ""
-            server_vault["logged_out"] = True
+            st.session_state["user_vault"]["rt_encoded"] = ""
+            st.session_state["user_vault"]["logged_out"] = True
             st.query_params.clear()
             st.rerun()
 
@@ -517,15 +516,15 @@ if not st.session_state["saved_api_key"]:
     with c2:
         st.link_button("🔗 키 발급(새창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
     key_input = st.text_input("복사한 API 키 붙여넣기:", type="password")
-    if st.button("💾 키 영구 저장", type="primary", use_container_width=True) or key_input.strip():
+    if st.button("💾 키 저장", type="primary", use_container_width=True) or key_input.strip():
         if key_input.strip():
-            with st.spinner("금고 각인 중..."): save_api_key_permanently(key_input)
+            with st.spinner("저장 중..."): save_api_key_permanently(key_input)
             st.rerun()
 
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [6. 메인 입력 구역 - 1단계 음성 & 2단계 순정 단일 사진 업로더]
+# [6. 메인 입력 구역]
 # =====================================================================
 BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -554,7 +553,6 @@ else:
 image_bytes = None
 image_mime_type = "image/jpeg"
 
-# 2단계 사진 첨부: 순정 단일 파일 업로더 유지
 st.markdown('<div class="mic-guide-card" style="border-left-color:#10b981;"><span style="font-weight:bold; color:#065f46;">📸 [2단계] 사진 첨부 (선택)</span><br><span style="font-size:12px; color:#475569;">회의 자료나 사양서가 있으면 추가하세요. 없으면 건너뜁니다.</span></div>', unsafe_allow_html=True)
 img_input_mode = st.radio("사진 첨부", IMAGE_MODE_OPTIONS, horizontal=True)
 
@@ -570,7 +568,7 @@ st.write("")
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
 
 # =====================================================================
-# [7. 분석 실행 및 구글 시트/드라이브/캘린더 연동]
+# [7. 분석 실행]
 # =====================================================================
 def upload_audio_to_drive(creds, abytes, mtype, ftitle="Voice_Record"):
     authed_session = AuthorizedSession(creds)
@@ -683,7 +681,6 @@ if analyze_clicked:
                     dlink = "텍스트만 기록"
                 save_record_to_sheet(creds, [ctime, cat, assign, summ, det, f"{due} {evt}".strip(), cal_stat, dlink])
                 
-                sync_today_usage_from_sheet.clear()
                 s_count, s_mins, _ = sync_today_usage_from_sheet(today_str)
                 st.session_state["daily_request_count"], st.session_state["daily_used_seconds"] = s_count, s_mins * 60.0
             
@@ -693,7 +690,7 @@ if analyze_clicked:
         except Exception as e: st.error(f"⚠️ 오류 발생: {e}")
 
 # =====================================================================
-# [8. 보관함 구역 - 초기 구동 시 시트 자동 조회를 막아 30초 지연 원천 차단]
+# [8. 보관함 구역]
 # =====================================================================
 st.markdown("<div style='margin:40px 0 20px 0; border-top: 2px dashed #cbd5e1;'></div>", unsafe_allow_html=True)
 st.markdown("<div style='font-size:16px; font-weight:800; color:#475569; margin-bottom:12px;'>📦 내 보관함 (과거 기록 및 보고서)</div>", unsafe_allow_html=True)
@@ -721,7 +718,6 @@ def upload_text_to_drive(creds, text_content, file_name):
 with st.expander("📁 내 저장된 녹음 리스트 조회"):
     if st.button("📂 저장된 녹음 목록 불러오기 / 새로고침", use_container_width=True):
         st.session_state["show_archive_list"] = True
-        sync_today_usage_from_sheet.clear()
         
     if st.session_state.get("show_archive_list"):
         try:
