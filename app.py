@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정]
+# [3. CSS 설정 (모바일 나란히 2토막 배치 로직 주입)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,6 +106,18 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
+    /* 💡 [신규] 모바일 환경에서 버튼들이 절대 아래로 떨어지지 않게 1줄 고정 */
+    @media (max-width: 768px) {{
+        div[data-testid="stHorizontalBlock"] {{
+            flex-wrap: nowrap !important;
+            gap: 0.5rem !important;
+        }}
+        div[data-testid="column"] {{
+            width: 100% !important;
+            min-width: 0 !important;
+        }}
+    }}
+
     @keyframes slideUpFade {{
         0% {{ opacity: 0; transform: translateY(20px); }}
         100% {{ opacity: 1; transform: translateY(0); }}
@@ -172,7 +184,7 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 # =====================================================================
-# [4. 다중 사용자 쿠키 세션 및 상단 UI 배치]
+# [4. 다중 사용자 쿠키 세션 처리]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -271,7 +283,9 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
 
 is_logged_in = "credentials" in st.session_state
 
-# 상단 타이틀 렌더링
+# =====================================================================
+# [화면 상단 UI 렌더링 (간판 원상 복구)]
+# =====================================================================
 st.markdown(f"""
 <div class="premium-header">
     <div class="premium-badge">✨ AI VOICE WORKSPACE</div>
@@ -280,7 +294,7 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 임시 창 닫기 중복 방지 로직 유지
+# 임시 창 닫기 중복 방지
 if st.session_state.get("just_logged_in"):
     st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
     st.stop()
@@ -497,12 +511,18 @@ def show_api_guide_modal():
             st.rerun()
 
 # =====================================================================
-# [출력 구역: 로그아웃 & 키 변경 버튼을 한 줄로 나란히 배치 (사용량 데이터 바로 위)]
+# 💡 [신규 배치] 성공 메시지와 버튼들을 나란히 배치 (데이터 카드 바로 위)
 # =====================================================================
-top_btn_c1, top_btn_c2 = st.columns([1, 1])
+if st.session_state["saved_api_key"]:
+    st.success("✅ 구글 & API키 자동유지 됨")
+else:
+    st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
-with top_btn_c1:
-    if st.button("🚪 로그아웃", use_container_width=True, key="top_logout_row"):
+# 모바일에서도 무조건 2토막으로 나란히 고정되는 2개 열 생성
+btn_col1, btn_col2 = st.columns(2)
+
+with btn_col1:
+    if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
         del st.session_state["credentials"]
         st.session_state["saved_api_key"] = ""
         st.session_state["saved_rt_encoded"] = ""
@@ -511,14 +531,14 @@ with top_btn_c1:
         st.session_state["user_vault"]["rt_encoded"] = ""
         st.session_state["user_vault"]["ak_encoded"] = ""
         st.session_state["user_vault"]["logged_out"] = True
-        cookie_manager.delete("v_rt", key="del_rt_top")
-        cookie_manager.delete("v_ak", key="del_ak_top")
+        cookie_manager.delete("v_rt", key="del_rt_btn")
+        cookie_manager.delete("v_ak", key="del_ak_btn")
         st.query_params.clear()
         st.rerun()
 
-with top_btn_c2:
+with btn_col2:
     if st.session_state["saved_api_key"]:
-        if st.button("🔑 키 변경", use_container_width=True, key="top_key_change_row"):
+        if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_row"):
             if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
@@ -527,14 +547,8 @@ with top_btn_c2:
             if "ak" in st.query_params: del st.query_params["ak"]
             st.rerun()
     else:
-        if st.button("🔑 키 등록", use_container_width=True, key="top_key_register_row"):
+        if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_row"):
             show_api_guide_modal()
-
-# 상태 메시지 출력
-if st.session_state["saved_api_key"]:
-    st.success("✅ 구글 & API키 자동유지 됨")
-else:
-    st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
@@ -549,18 +563,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-if not st.session_state["saved_api_key"]:
-    c1, c2 = st.columns(2)
-    with c1:
-        if st.button("📖 발급 방법", type="primary", use_container_width=True): show_api_guide_modal()
-    with c2:
-        st.link_button("🔗 키 발급(새창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
-    key_input = st.text_input("복사한 API 키 붙여넣기:", type="password")
-    if st.button("💾 키 저장", type="primary", use_container_width=True) or key_input.strip():
-        if key_input.strip():
-            with st.spinner("저장 중..."): save_api_key_permanently(key_input)
-            st.rerun()
-
+# 💡 하단에 남아있던 중복 키 발급 안내 버튼 구역은 삭제하여 깔끔하게 정리했습니다.
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
