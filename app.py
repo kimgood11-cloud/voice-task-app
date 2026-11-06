@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (오류 유발 모바일 강제고정 CSS 수정 완료)]
+# [3. CSS 설정 (모바일 50:50 나란히 배치 강제 CSS 주입)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,15 +106,16 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [수정됨] 화면 밖으로 밀어내던 범인(width: 100%)을 제거하고 비율 배분 허용 */
+    /* 💡 [핵심 구현] 모바일에서 버튼이 세로로 떨어지지 않게 50:50 가로 배치 강제 고정 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
+            flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 0.4rem !important;
+            gap: 8px !important;
         }}
-        div[data-testid="column"] {{
-            width: auto !important; 
-            flex: 1 1 0% !important; 
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+            width: 50% !important;
+            flex: 1 1 50% !important;
             min-width: 0 !important;
         }}
     }}
@@ -511,17 +512,16 @@ def show_api_guide_modal():
             with st.spinner("저장 중..."): save_api_key_permanently(modal_key)
             st.rerun()
 
-
 # =====================================================================
-# 💡 [신규 배치] 성공 메시지와 버튼들을 나란히 배치 (대표님의 4:4:2 아이디어 적용)
+# 💡 [신규 배치] 50:50 나란히 배치 (상태 메시지 출력 후 한 줄 고정 컬럼)
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
 else:
     st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
-# 대표님의 [로그아웃 4 : 키변경 4 : 여유 마진 2] 완벽 적용 구역
-btn_col1, btn_col2, btn_col3 = st.columns([4, 4, 2])
+# 모바일에서도 50:50 비율로 한 줄을 유지하는 2개 열 생성
+btn_col1, btn_col2 = st.columns(2)
 
 with btn_col1:
     if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
@@ -551,10 +551,6 @@ with btn_col2:
     else:
         if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_row"):
             show_api_guide_modal()
-            
-with btn_col3:
-    # 💡 화면 우측이 잘리지 않도록 비워두는 투명한 여백(마진) 역할
-    st.empty()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
@@ -568,6 +564,20 @@ st.markdown(f"""
         </div>
     </div>
 """, unsafe_allow_html=True)
+
+if not st.session_state["saved_api_key"]:
+    c1, c2 = st.columns(2)
+    with c1:
+        if st.button("📖 발급 방법", type="primary", use_container_width=True): show_api_guide_modal()
+    with c2:
+        st.link_button("🔗 키 발급(새창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
+    key_input = st.text_input("복사한 API 키 붙여넣기:", type="password")
+    if st.button("💾 키 저장", type="primary", use_container_width=True) or key_input.strip():
+        if key_input.strip():
+            with st.spinner("저장 중..."): save_api_key_permanently(key_input)
+            st.rerun()
+
+user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
 # [6. 메인 입력 구역]
