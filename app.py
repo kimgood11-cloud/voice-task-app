@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (모바일 나란히 2토막 배치 로직 주입)]
+# [3. CSS 설정 (오류 유발 모바일 강제고정 CSS 수정 완료)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,14 +106,15 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [신규] 모바일 환경에서 버튼들이 절대 아래로 떨어지지 않게 1줄 고정 */
+    /* 💡 [수정됨] 화면 밖으로 밀어내던 범인(width: 100%)을 제거하고 비율 배분 허용 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
             flex-wrap: nowrap !important;
-            gap: 0.5rem !important;
+            gap: 0.4rem !important;
         }}
         div[data-testid="column"] {{
-            width: 100% !important;
+            width: auto !important; 
+            flex: 1 1 0% !important; 
             min-width: 0 !important;
         }}
     }}
@@ -284,7 +285,7 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
 is_logged_in = "credentials" in st.session_state
 
 # =====================================================================
-# [화면 상단 UI 렌더링 (간판 원상 복구)]
+# [화면 상단 UI 렌더링]
 # =====================================================================
 st.markdown(f"""
 <div class="premium-header">
@@ -510,16 +511,17 @@ def show_api_guide_modal():
             with st.spinner("저장 중..."): save_api_key_permanently(modal_key)
             st.rerun()
 
+
 # =====================================================================
-# 💡 [신규 배치] 성공 메시지와 버튼들을 나란히 배치 (데이터 카드 바로 위)
+# 💡 [신규 배치] 성공 메시지와 버튼들을 나란히 배치 (대표님의 4:4:2 아이디어 적용)
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
 else:
     st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
-# 모바일에서도 무조건 2토막으로 나란히 고정되는 2개 열 생성
-btn_col1, btn_col2 = st.columns(2)
+# 대표님의 [로그아웃 4 : 키변경 4 : 여유 마진 2] 완벽 적용 구역
+btn_col1, btn_col2, btn_col3 = st.columns([4, 4, 2])
 
 with btn_col1:
     if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
@@ -549,6 +551,10 @@ with btn_col2:
     else:
         if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_row"):
             show_api_guide_modal()
+            
+with btn_col3:
+    # 💡 화면 우측이 잘리지 않도록 비워두는 투명한 여백(마진) 역할
+    st.empty()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
@@ -562,9 +568,6 @@ st.markdown(f"""
         </div>
     </div>
 """, unsafe_allow_html=True)
-
-# 💡 하단에 남아있던 중복 키 발급 안내 버튼 구역은 삭제하여 깔끔하게 정리했습니다.
-user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
 # [6. 메인 입력 구역]
