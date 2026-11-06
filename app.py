@@ -172,7 +172,6 @@ except Exception:
     st.error("⚠️ `.streamlit/secrets.toml` 설정 파일 누락")
     st.stop()
 
-# 💡 CachedWidgetWarning 해결: @st.cache_resource 없이 직접 쿠키 매니저 초기화
 cookie_manager = stx.CookieManager(key="cm_mgr")
 all_cookies = cookie_manager.get_all() or {}
 
@@ -221,6 +220,11 @@ if "credentials" not in st.session_state and "code" in st.query_params:
         st.query_params.clear()
     except Exception:
         st.query_params.clear()
+
+# 💡 렌더링 충돌 및 문구 중복을 방지하기 위해 여기서 메인 앱 구동을 정지합니다.
+if st.session_state.get("just_logged_in"):
+    st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
+    st.stop()
 
 # 2. 쿠키 기반 인증 복구 (무한 반복 해결)
 if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not st.session_state["user_vault"]["logged_out"]:
@@ -272,9 +276,6 @@ if "credentials" not in st.session_state:
     """, unsafe_allow_html=True)
     st.link_button("🚀 구글 로그인 시작 (클릭)", auth_url, type="primary", use_container_width=True)
     st.stop()
-
-if st.session_state.get("just_logged_in"):
-    st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
 
 # =====================================================================
 # [5. 개인별 구글 드라이브/시트 조회 로직]
