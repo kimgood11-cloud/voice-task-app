@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (오류 유발 모바일 강제고정 CSS 제거 완료)]
+# [3. CSS 설정]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -271,32 +271,14 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
 
 is_logged_in = "credentials" in st.session_state
 
-# 💡 안전한 비율 [8.5 : 1.5] 적용 (모바일 튕김 방지)
-head_c1, head_c2 = st.columns([8.5, 1.5])
-with head_c1:
-    st.markdown(f"""
-    <div class="premium-header">
-        <div class="premium-badge">✨ AI VOICE WORKSPACE</div>
-        <div class="premium-title">🎙️ {APP_TITLE}</div>
-        <div class="premium-subtitle">{APP_SUBTITLE}</div>
-    </div>
-    """, unsafe_allow_html=True)
-with head_c2:
-    if is_logged_in:
-        st.write("") 
-        if st.button("🚪 로그아웃", use_container_width=True, key="top_logout"):
-            del st.session_state["credentials"]
-            st.session_state["saved_api_key"] = ""
-            st.session_state["saved_rt_encoded"] = ""
-            st.session_state["logged_out_flag"] = True
-            st.session_state["key_cleared_flag"] = True
-            st.session_state["user_vault"]["rt_encoded"] = ""
-            st.session_state["user_vault"]["ak_encoded"] = ""
-            st.session_state["user_vault"]["logged_out"] = True
-            cookie_manager.delete("v_rt", key="del_rt_top")
-            cookie_manager.delete("v_ak", key="del_ak_top")
-            st.query_params.clear()
-            st.rerun()
+# 상단 타이틀 렌더링
+st.markdown(f"""
+<div class="premium-header">
+    <div class="premium-badge">✨ AI VOICE WORKSPACE</div>
+    <div class="premium-title">🎙️ {APP_TITLE}</div>
+    <div class="premium-subtitle">{APP_SUBTITLE}</div>
+</div>
+""", unsafe_allow_html=True)
 
 # 임시 창 닫기 중복 방지 로직 유지
 if st.session_state.get("just_logged_in"):
@@ -514,13 +496,29 @@ def show_api_guide_modal():
             with st.spinner("저장 중..."): save_api_key_permanently(modal_key)
             st.rerun()
 
-# 💡 안전한 비율 [8, 2] 유지 (키 변경 버튼)
-if st.session_state["saved_api_key"]:
-    c1, c2 = st.columns([8, 2])
-    with c1: 
-        st.success("✅ 구글 & API키 자동유지 됨")
-    with c2:
-        if st.button("🔑 키 변경", use_container_width=True):
+# =====================================================================
+# [출력 구역: 로그아웃 & 키 변경 버튼을 한 줄로 나란히 배치 (사용량 데이터 바로 위)]
+# =====================================================================
+top_btn_c1, top_btn_c2 = st.columns([1, 1])
+
+with top_btn_c1:
+    if st.button("🚪 로그아웃", use_container_width=True, key="top_logout_row"):
+        del st.session_state["credentials"]
+        st.session_state["saved_api_key"] = ""
+        st.session_state["saved_rt_encoded"] = ""
+        st.session_state["logged_out_flag"] = True
+        st.session_state["key_cleared_flag"] = True
+        st.session_state["user_vault"]["rt_encoded"] = ""
+        st.session_state["user_vault"]["ak_encoded"] = ""
+        st.session_state["user_vault"]["logged_out"] = True
+        cookie_manager.delete("v_rt", key="del_rt_top")
+        cookie_manager.delete("v_ak", key="del_ak_top")
+        st.query_params.clear()
+        st.rerun()
+
+with top_btn_c2:
+    if st.session_state["saved_api_key"]:
+        if st.button("🔑 키 변경", use_container_width=True, key="top_key_change_row"):
             if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
@@ -528,6 +526,13 @@ if st.session_state["saved_api_key"]:
             cookie_manager.delete("v_ak", key="del_ak")
             if "ak" in st.query_params: del st.query_params["ak"]
             st.rerun()
+    else:
+        if st.button("🔑 키 등록", use_container_width=True, key="top_key_register_row"):
+            show_api_guide_modal()
+
+# 상태 메시지 출력
+if st.session_state["saved_api_key"]:
+    st.success("✅ 구글 & API키 자동유지 됨")
 else:
     st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
