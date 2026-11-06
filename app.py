@@ -12,7 +12,6 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession, Request
 from google import genai
 from google.genai import types
-import extra_streamlit_components as stx
 
 # =====================================================================
 # [1. 기본 환경 설정]
@@ -96,7 +95,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 및 상단 UI]
+# [3. CSS 및 상단 UI (모바일 모션 그래픽 추가)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,26 +105,55 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
+    /* 💡 [신규 디자인] 부드러운 애니메이션 키프레임 정의 */
+    @keyframes slideUpFade {{
+        0% {{ opacity: 0; transform: translateY(20px); }}
+        100% {{ opacity: 1; transform: translateY(0); }}
+    }}
+    @keyframes pulse {{
+        0% {{ box-shadow: 0 0 0 0 rgba(0, 0, 0, 0.4); }}
+        70% {{ box-shadow: 0 0 0 8px rgba(0, 0, 0, 0); }}
+        100% {{ box-shadow: 0 0 0 0 rgba(0, 0, 0, 0); }}
+    }}
+
     html, body, [class*="css"] {{ font-family: -apple-system, BlinkMacSystemFont, 'Malgun Gothic', system-ui, sans-serif; }}
     #MainMenu, header, footer, [data-testid="stHeader"], [data-testid="stToolbar"], [data-testid="stDecoration"], [data-testid="stStatusWidget"] {{ visibility: hidden !important; display: none !important; }}
     .block-container {{ padding-top: 0.8rem !important; padding-bottom: 2rem !important; padding-left: 0.8rem !important; padding-right: 0.8rem !important; max-width: 820px !important; }}
     
-    .premium-header {{ background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); }}
+    /* 요소별 순차적 애니메이션 적용 */
+    .premium-header {{ 
+        animation: slideUpFade 0.6s ease-out forwards;
+        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); 
+    }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-bottom: 6px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: 18px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; line-height: 1.3 !important; letter-spacing: -0.5px !important; }}
     .premium-subtitle {{ font-size: 12px; color: #c7d2fe; margin: 0; font-weight: 400; line-height: 1.4; word-break: keep-all; }}
     
-    .usage-card {{ background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04); margin-bottom: 12px; }}
+    .usage-card {{ 
+        animation: slideUpFade 0.6s ease-out 0.1s forwards; opacity: 0;
+        background: #ffffff; border: 1px solid #e2e8f0; border-radius: 14px; padding: 14px; box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.04); margin-bottom: 12px; 
+    }}
     .usage-title {{ font-size: 14px; font-weight: 800; color: #1e293b; margin-bottom: 10px; }}
     .usage-grid {{ display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }}
-    .usage-item {{ background: #f8fafc; border-radius: 10px; padding: 10px; border: 1px solid #f1f5f9; }}
+    .usage-item {{ background: #f8fafc; border-radius: 10px; padding: 10px; border: 1px solid #f1f5f9; transition: transform 0.2s; }}
+    .usage-item:active {{ transform: scale(0.97); }}
     .usage-label {{ font-size: 11px; color: #64748b; font-weight: 600; margin-bottom: 3px; }}
     .usage-value {{ font-size: 14px; font-weight: 800; color: #2563eb; }}
     
-    .login-card {{ background: #ffffff; border: 2px solid #e2e8f0; border-radius: 16px; padding: 22px 18px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); margin-bottom: 12px; }}
-    .mic-guide-card {{ background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #000000; border-radius: 12px; padding: 12px 14px; margin-top: 6px; margin-bottom: 12px; word-break: keep-all; }}
+    .login-card {{ 
+        animation: slideUpFade 0.6s ease-out 0.1s forwards; opacity: 0;
+        background: #ffffff; border: 2px solid #e2e8f0; border-radius: 16px; padding: 22px 18px; text-align: center; box-shadow: 0 10px 25px -5px rgba(0, 0, 0, 0.05); margin-bottom: 12px; 
+    }}
+    .mic-guide-card {{ 
+        animation: slideUpFade 0.6s ease-out 0.2s forwards; opacity: 0;
+        background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #000000; border-radius: 12px; padding: 12px 14px; margin-top: 6px; margin-bottom: 12px; word-break: keep-all; transition: all 0.3s;
+    }}
+    .mic-guide-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }}
     
-    [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; }}
+    /* 💡 [신규 디자인] 마이크 맥박 모션 클래스 */
+    .pulse-mic {{ animation: pulse 2s infinite; }}
+
+    [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; transition: all 0.3s; }}
     
     div.stButton > button[kind="primary"], [data-testid="stBaseButton-primary"] {{
         background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%) !important;
@@ -135,6 +163,11 @@ premium_css = f"""
         box-shadow: 0 8px 16px -4px rgba(67, 56, 202, 0.5), 0 3px 5px -1px rgba(0, 0, 0, 0.05) !important;
         font-weight: 800 !important;
         padding: 0.6rem 1rem !important;
+        transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1) !important;
+    }}
+    div.stButton > button[kind="primary"]:active {{
+        transform: scale(0.96) !important;
+        box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.4) !important;
     }}
 </style>
 
@@ -147,7 +180,7 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 # =====================================================================
-# [4. 다중 사용자(Multi-User) 쿠키 세션 인증]
+# [4. 1인용 초고속 서버 전역 금고 유지 (로그인 무한반복 방지 기능 포함)]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -172,23 +205,26 @@ except Exception:
     st.error("⚠️ `.streamlit/secrets.toml` 설정 파일 누락")
     st.stop()
 
-cookie_manager = stx.CookieManager(key="cm_mgr")
-all_cookies = cookie_manager.get_all() or {}
-
 @st.cache_resource
 def get_flow_store():
     return {}
 flow_store = get_flow_store()
 
-if "user_vault" not in st.session_state:
-    st.session_state["user_vault"] = {
+@st.cache_resource
+def get_server_vault():
+    return {
+        "creds": None,
         "rt_encoded": "",
         "ak_encoded": "",
         "drive_folder_id": "",
         "logged_out": False
     }
+server_vault = get_server_vault()
 
-# 1. 구글 로그인 직후 콜백 처리 및 쿠키 저장
+if "credentials" not in st.session_state and server_vault.get("creds") is not None and not server_vault.get("logged_out") and not st.session_state.get("logged_out_flag"):
+    st.session_state["credentials"] = server_vault["creds"]
+    st.session_state["saved_rt_encoded"] = server_vault["rt_encoded"]
+
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -199,37 +235,36 @@ if "credentials" not in st.session_state and "code" in st.query_params:
         flow.fetch_token(code=auth_code)
         creds = flow.credentials
         
-        final_rt = creds.refresh_token
-        
         st.session_state["credentials"] = creds
         st.session_state["logged_out_flag"] = False
-        st.session_state["user_vault"]["logged_out"] = False
+        
+        server_vault["creds"] = creds
+        server_vault["logged_out"] = False
+        
         st.session_state["just_logged_in"] = True
         
-        if final_rt:
-            encoded_rt = base64.b64encode(final_rt.encode()).decode() if not final_rt.startswith("1//") else final_rt
-            st.session_state["saved_rt_encoded"] = encoded_rt
-            st.session_state["user_vault"]["rt_encoded"] = encoded_rt
-            cookie_manager.set("v_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=365), key="set_rt_c")
+        prev_rt_encoded = st.query_params.get("rt", "") or server_vault.get("rt_encoded", "")
+        final_rt = creds.refresh_token
+        if not final_rt and prev_rt_encoded:
+            try: final_rt = base64.b64decode(prev_rt_encoded.encode()).decode()
+            except Exception: final_rt = prev_rt_encoded
             
-        existing_ak = st.query_params.get("ak", "")
-        if existing_ak:
-            st.session_state["user_vault"]["ak_encoded"] = existing_ak
-            cookie_manager.set("v_ak", existing_ak, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c")
-            
+        existing_ak = st.query_params.get("ak", "") or server_vault.get("ak_encoded", "")
         st.query_params.clear()
+        if final_rt:
+            encoded_rt = base64.b64encode(final_rt.encode()).decode()
+            st.session_state["saved_rt_encoded"] = encoded_rt
+            server_vault["rt_encoded"] = encoded_rt
+            st.query_params["rt"] = encoded_rt
+        if existing_ak:
+            st.query_params["ak"] = existing_ak
+            server_vault["ak_encoded"] = existing_ak
     except Exception:
         st.query_params.clear()
 
-# 💡 렌더링 충돌 및 문구 중복을 방지하기 위해 여기서 메인 앱 구동을 정지합니다.
-if st.session_state.get("just_logged_in"):
-    st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
-    st.stop()
-
-# 2. 쿠키 기반 인증 복구 (무한 반복 해결)
-if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not st.session_state["user_vault"]["logged_out"]:
-    encoded_rt = all_cookies.get("v_rt", "") or st.query_params.get("rt", "") or st.session_state["user_vault"]["rt_encoded"]
-    
+if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not server_vault.get("logged_out"):
+    secret_rt = oauth_secrets.get("refresh_token", "")
+    encoded_rt = server_vault.get("rt_encoded", "") or st.query_params.get("rt", "") or secret_rt
     if encoded_rt:
         try:
             try: decoded_rt = base64.b64decode(encoded_rt.encode()).decode()
@@ -245,20 +280,22 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
             auto_creds.refresh(Request())
             st.session_state["credentials"] = auto_creds
             st.session_state["saved_rt_encoded"] = encoded_rt
-            st.session_state["user_vault"]["rt_encoded"] = encoded_rt
-            
-            # 토큰 갱신 시 쿠키 재저장
-            if not all_cookies.get("v_rt", ""):
-                cookie_manager.set("v_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=365), key="set_rt_c_r")
+            server_vault["creds"] = auto_creds
+            server_vault["rt_encoded"] = encoded_rt
+            if "rt" not in st.query_params:
+                st.query_params["rt"] = encoded_rt
         except Exception:
-            pass
+            server_vault["rt_encoded"] = ""
+            if "rt" in st.query_params:
+                del st.query_params["rt"]
 
 def get_valid_credentials():
-    creds = st.session_state.get("credentials")
+    creds = st.session_state.get("credentials") or server_vault.get("creds")
     if creds and creds.expired and creds.refresh_token:
         try:
             creds.refresh(Request())
             st.session_state["credentials"] = creds
+            server_vault["creds"] = creds
         except Exception:
             pass
     return creds
@@ -271,18 +308,22 @@ if "credentials" not in st.session_state:
     st.markdown("""
         <div class="login-card">
             <h4 style="margin:0 0 8px 0;">🔐 구글 워크스페이스 연동</h4>
-            <p style="font-size:13px; color:#475569; margin:0;">각자의 구글 계정으로 로그인하여 사용하세요.</p>
+            <p style="font-size:13px; color:#475569; margin:0;">아래 공식 로그인 버튼을 누르면 즉시 연동됩니다.</p>
         </div>
     """, unsafe_allow_html=True)
     st.link_button("🚀 구글 로그인 시작 (클릭)", auth_url, type="primary", use_container_width=True)
     st.stop()
 
+if st.session_state.get("just_logged_in"):
+    st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
+    st.stop()
+
 # =====================================================================
-# [5. 개인별 구글 드라이브/시트 조회 로직]
+# [5. 구글 드라이브/시트 4중 금고 및 사용량 고속 캐싱]
 # =====================================================================
 def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
-    if st.session_state["user_vault"].get("drive_folder_id"):
-        return st.session_state["user_vault"]["drive_folder_id"]
+    if server_vault.get("drive_folder_id"):
+        return server_vault["drive_folder_id"]
     authed_session = AuthorizedSession(creds)
     query = f"name = '{folder_name}' and mimeType = 'application/vnd.google-apps.folder' and trashed = false"
     try:
@@ -291,13 +332,13 @@ def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
             files = res.json().get("files", [])
             if files:
                 folder_id = files[0]["id"]
-                st.session_state["user_vault"]["drive_folder_id"] = folder_id
+                server_vault["drive_folder_id"] = folder_id
                 return folder_id
         folder_metadata = {"name": folder_name, "mimeType": "application/vnd.google-apps.folder"}
         create_res = authed_session.post("https://www.googleapis.com/drive/v3/files", json=folder_metadata, timeout=5)
         if create_res.status_code in [200, 201]:
             folder_id = create_res.json().get("id")
-            st.session_state["user_vault"]["drive_folder_id"] = folder_id
+            server_vault["drive_folder_id"] = folder_id
             return folder_id
     except Exception:
         pass
@@ -424,23 +465,23 @@ if AUTO_SYNC_USAGE_ON_START and not st.session_state.get("usage_synced_once"):
             decoded_ak = base64.b64decode(raw_sheet_ak.encode()).decode()
             if decoded_ak.startswith("AIza"):
                 st.session_state["saved_api_key"] = decoded_ak
-                st.session_state["user_vault"]["ak_encoded"] = raw_sheet_ak
-                if not all_cookies.get("v_ak", ""):
-                    cookie_manager.set("v_ak", raw_sheet_ak, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c_1")
+                server_vault["ak_encoded"] = raw_sheet_ak
+                if "ak" not in st.query_params:
+                    st.query_params["ak"] = raw_sheet_ak
         except Exception:
             pass
 
 if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
-    encoded_ak = all_cookies.get("v_ak", "") or st.query_params.get("ak", "") or st.session_state["user_vault"]["ak_encoded"]
+    encoded_ak = st.query_params.get("ak", "") or server_vault.get("ak_encoded", "")
     if not encoded_ak and "credentials" in st.session_state:
         encoded_ak = load_api_key_from_cloud_vault(get_valid_credentials())
     if encoded_ak:
         try:
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
             st.session_state["saved_api_key"] = decoded_key
-            st.session_state["user_vault"]["ak_encoded"] = encoded_ak
-            if not all_cookies.get("v_ak", ""):
-                cookie_manager.set("v_ak", encoded_ak, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c_2")
+            server_vault["ak_encoded"] = encoded_ak
+            if "ak" not in st.query_params:
+                st.query_params["ak"] = encoded_ak
         except Exception:
             pass
 
@@ -449,14 +490,14 @@ def save_api_key_permanently(raw_key):
     encoded_val = base64.b64encode(clean_key.encode()).decode()
     st.session_state["saved_api_key"] = clean_key
     st.session_state["key_cleared_flag"] = False
-    st.session_state["user_vault"]["ak_encoded"] = encoded_val
-    cookie_manager.set("v_ak", encoded_val, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c_perm")
+    server_vault["ak_encoded"] = encoded_val
+    st.query_params["ak"] = encoded_val
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
 
 @st.dialog("🔑 무료 Gemini API 키 등록", width="large")
 def show_api_guide_modal():
-    st.markdown("<p style='font-size:13px;'>최초 1회만 등록하면 개별 계정 금고에 유지됩니다.</p>", unsafe_allow_html=True)
+    st.markdown("<p style='font-size:13px;'>최초 1회만 등록하면 드라이브 금고에 백업되어 유지됩니다.</p>", unsafe_allow_html=True)
     st.link_button("👉 API 키 발급받기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
     modal_key = st.text_input("복사한 키 붙여넣기:", type="password")
     if st.button("✅ 저장", type="primary", use_container_width=True):
@@ -472,8 +513,7 @@ if st.session_state["saved_api_key"]:
             if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
-            st.session_state["user_vault"]["ak_encoded"] = ""
-            cookie_manager.delete("v_ak", key="del_ak")
+            server_vault["ak_encoded"] = ""
             if "ak" in st.query_params: del st.query_params["ak"]
             st.rerun()
     with c3:
@@ -483,11 +523,10 @@ if st.session_state["saved_api_key"]:
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
             st.session_state["key_cleared_flag"] = True
-            st.session_state["user_vault"]["rt_encoded"] = ""
-            st.session_state["user_vault"]["ak_encoded"] = ""
-            st.session_state["user_vault"]["logged_out"] = True
-            cookie_manager.delete("v_rt", key="del_rt")
-            cookie_manager.delete("v_ak", key="del_ak_out")
+            server_vault["creds"] = None
+            server_vault["rt_encoded"] = ""
+            server_vault["ak_encoded"] = ""
+            server_vault["logged_out"] = True
             st.query_params.clear()
             st.rerun()
 else:
@@ -498,9 +537,9 @@ else:
             if "credentials" in st.session_state: del st.session_state["credentials"]
             st.session_state["saved_rt_encoded"] = ""
             st.session_state["logged_out_flag"] = True
-            st.session_state["user_vault"]["rt_encoded"] = ""
-            st.session_state["user_vault"]["logged_out"] = True
-            cookie_manager.delete("v_rt", key="del_rt_2")
+            server_vault["creds"] = None
+            server_vault["rt_encoded"] = ""
+            server_vault["logged_out"] = True
             st.query_params.clear()
             st.rerun()
 
@@ -532,9 +571,10 @@ if not st.session_state["saved_api_key"]:
 user_api_key = st.session_state["saved_api_key"]
 
 # =====================================================================
-# [6. 메인 입력 구역]
+# [6. 메인 입력 구역 - 모션 그래픽 적용]
 # =====================================================================
-BLACK_MIC_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
+# 💡 [신규 디자인] 맥박(pulse-mic) 클래스가 추가된 마이크 뱃지
+BLACK_MIC_BADGE = '<span class="pulse-mic" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
 
 input_method = st.radio("입력 방식", ["실시간 녹음", "파일 업로드"], horizontal=True)
