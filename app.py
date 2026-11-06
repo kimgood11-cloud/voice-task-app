@@ -12,6 +12,7 @@ from google.oauth2.credentials import Credentials
 from google.auth.transport.requests import AuthorizedSession, Request
 from google import genai
 from google.genai import types
+import extra_streamlit_components as stx
 
 # =====================================================================
 # [1. 기본 환경 설정]
@@ -34,7 +35,6 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 공식 지원 최신 모델 목록 유지
 GEMINI_MODEL_CANDIDATES = [
     "gemini-2.0-flash",
     "gemini-1.5-flash-latest",
@@ -147,7 +147,7 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 # =====================================================================
-# [4. 다중 사용자(Multi-User) 전용 개별 세션 인증]
+# [4. 다중 사용자(Multi-User) 쿠키 세션 인증]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -173,6 +173,13 @@ except Exception:
     st.stop()
 
 @st.cache_resource
+def get_cookie_manager():
+    return stx.CookieManager(key="cm_mgr")
+
+cookie_manager = get_cookie_manager()
+all_cookies = cookie_manager.get_all() or {}
+
+@st.cache_resource
 def get_flow_store():
     return {}
 flow_store = get_flow_store()
@@ -185,6 +192,7 @@ if "user_vault" not in st.session_state:
         "logged_out": False
     }
 
+# 1. 구글 로그인 직후 콜백 처리 및 쿠키 저장
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -196,9 +204,7 @@ if "credentials" not in st.session_state and "code" in st.query_params:
         creds = flow.credentials
         
         final_rt = creds.refresh_token
-        if not final_rt:
-            final_rt = st.session_state["user_vault"]["rt_encoded"]
-            
+        
         st.session_state["credentials"] = creds
         st.session_state["logged_out_flag"] = False
         st.session_state["user_vault"]["logged_out"] = False
@@ -208,19 +214,20 @@ if "credentials" not in st.session_state and "code" in st.query_params:
             encoded_rt = base64.b64encode(final_rt.encode()).decode() if not final_rt.startswith("1//") else final_rt
             st.session_state["saved_rt_encoded"] = encoded_rt
             st.session_state["user_vault"]["rt_encoded"] = encoded_rt
-            st.query_params["rt"] = encoded_rt
+            cookie_manager.set("v_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=365), key="set_rt_c")
             
         existing_ak = st.query_params.get("ak", "")
         if existing_ak:
             st.session_state["user_vault"]["ak_encoded"] = existing_ak
+            cookie_manager.set("v_ak", existing_ak, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c")
             
-        if "code" in st.query_params: del st.query_params["code"]
-        if "state" in st.query_params: del st.query_params["state"]
+        st.query_params.clear()
     except Exception:
         st.query_params.clear()
 
+# 2. 쿠키 기반 인증 복구 (무한 반복 해결)
 if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not st.session_state["user_vault"]["logged_out"]:
-    encoded_rt = st.query_params.get("rt", "") or st.session_state["user_vault"]["rt_encoded"]
+    encoded_rt = all_cookies.get("v_rt", "") or st.query_params.get("rt", "") or st.session_state["user_vault"]["rt_encoded"]
     
     if encoded_rt:
         try:
@@ -238,12 +245,12 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
             st.session_state["credentials"] = auto_creds
             st.session_state["saved_rt_encoded"] = encoded_rt
             st.session_state["user_vault"]["rt_encoded"] = encoded_rt
-            if "rt" not in st.query_params:
-                st.query_params["rt"] = encoded_rt
+            
+            # 토큰 갱신 시 쿠키 재저장
+            if not all_cookies.get("v_rt", ""):
+                cookie_manager.set("v_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=365), key="set_rt_c_r")
         except Exception:
-            st.session_state["user_vault"]["rt_encoded"] = ""
-            if "rt" in st.query_params:
-                del st.query_params["rt"]
+            pass
 
 def get_valid_credentials():
     creds = st.session_state.get("credentials")
@@ -420,13 +427,13 @@ if AUTO_SYNC_USAGE_ON_START and not st.session_state.get("usage_synced_once"):
             if decoded_ak.startswith("AIza"):
                 st.session_state["saved_api_key"] = decoded_ak
                 st.session_state["user_vault"]["ak_encoded"] = raw_sheet_ak
-                if "ak" not in st.query_params:
-                    st.query_params["ak"] = raw_sheet_ak
+                if not all_cookies.get("v_ak", ""):
+                    cookie_manager.set("v_ak", raw_sheet_ak, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c_1")
         except Exception:
             pass
 
 if not st.session_state["saved_api_key"] and not st.session_state.get("key_cleared_flag"):
-    encoded_ak = st.query_params.get("ak", "") or st.session_state["user_vault"]["ak_encoded"]
+    encoded_ak = all_cookies.get("v_ak", "") or st.query_params.get("ak", "") or st.session_state["user_vault"]["ak_encoded"]
     if not encoded_ak and "credentials" in st.session_state:
         encoded_ak = load_api_key_from_cloud_vault(get_valid_credentials())
     if encoded_ak:
@@ -434,8 +441,8 @@ if not st.session_state["saved_api_key"] and not st.session_state.get("key_clear
             decoded_key = base64.b64decode(encoded_ak.encode()).decode()
             st.session_state["saved_api_key"] = decoded_key
             st.session_state["user_vault"]["ak_encoded"] = encoded_ak
-            if "ak" not in st.query_params:
-                st.query_params["ak"] = encoded_ak
+            if not all_cookies.get("v_ak", ""):
+                cookie_manager.set("v_ak", encoded_ak, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c_2")
         except Exception:
             pass
 
@@ -445,7 +452,7 @@ def save_api_key_permanently(raw_key):
     st.session_state["saved_api_key"] = clean_key
     st.session_state["key_cleared_flag"] = False
     st.session_state["user_vault"]["ak_encoded"] = encoded_val
-    st.query_params["ak"] = encoded_val
+    cookie_manager.set("v_ak", encoded_val, expires_at=datetime.now() + timedelta(days=365), key="set_ak_c_perm")
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
 
@@ -468,6 +475,7 @@ if st.session_state["saved_api_key"]:
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
             st.session_state["user_vault"]["ak_encoded"] = ""
+            cookie_manager.delete("v_ak", key="del_ak")
             if "ak" in st.query_params: del st.query_params["ak"]
             st.rerun()
     with c3:
@@ -480,6 +488,8 @@ if st.session_state["saved_api_key"]:
             st.session_state["user_vault"]["rt_encoded"] = ""
             st.session_state["user_vault"]["ak_encoded"] = ""
             st.session_state["user_vault"]["logged_out"] = True
+            cookie_manager.delete("v_rt", key="del_rt")
+            cookie_manager.delete("v_ak", key="del_ak_out")
             st.query_params.clear()
             st.rerun()
 else:
@@ -492,6 +502,7 @@ else:
             st.session_state["logged_out_flag"] = True
             st.session_state["user_vault"]["rt_encoded"] = ""
             st.session_state["user_vault"]["logged_out"] = True
+            cookie_manager.delete("v_rt", key="del_rt_2")
             st.query_params.clear()
             st.rerun()
 
