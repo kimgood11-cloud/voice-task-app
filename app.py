@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (모바일 세로 쌓기 강제 방지 로직 추가)]
+# [3. CSS 설정 (오류 유발 모바일 강제고정 CSS 제거 완료)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,16 +106,6 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 모바일 화면에서 버튼이 아래로 떨어지는 현상 원천 차단 */
-    @media (max-width: 768px) {{
-        div[data-testid="stHorizontalBlock"] {{
-            flex-wrap: nowrap !important;
-        }}
-        div[data-testid="column"] {{
-            min-width: 0 !important;
-        }}
-    }}
-
     @keyframes slideUpFade {{
         0% {{ opacity: 0; transform: translateY(20px); }}
         100% {{ opacity: 1; transform: translateY(0); }}
@@ -281,8 +271,8 @@ if "credentials" not in st.session_state and not st.session_state.get("logged_ou
 
 is_logged_in = "credentials" in st.session_state
 
-# 💡 [신규 레이아웃] 모바일 겹침 방지 황금비율 적용 (로그아웃 버튼)
-head_c1, head_c2 = st.columns([7.5, 2.5])
+# 💡 안전한 비율 [8.5 : 1.5] 적용 (모바일 튕김 방지)
+head_c1, head_c2 = st.columns([8.5, 1.5])
 with head_c1:
     st.markdown(f"""
     <div class="premium-header">
@@ -308,7 +298,7 @@ with head_c2:
             st.query_params.clear()
             st.rerun()
 
-# 임시 창 닫기 중복 방지
+# 임시 창 닫기 중복 방지 로직 유지
 if st.session_state.get("just_logged_in"):
     st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
     st.stop()
@@ -524,9 +514,9 @@ def show_api_guide_modal():
             with st.spinner("저장 중..."): save_api_key_permanently(modal_key)
             st.rerun()
 
-# 💡 [신규 레이아웃] 모바일 겹침 방지 황금비율 적용 (키 변경 버튼)
+# 💡 안전한 비율 [8, 2] 유지 (키 변경 버튼)
 if st.session_state["saved_api_key"]:
-    c1, c2 = st.columns([7.5, 2.5])
+    c1, c2 = st.columns([8, 2])
     with c1: 
         st.success("✅ 구글 & API키 자동유지 됨")
     with c2:
