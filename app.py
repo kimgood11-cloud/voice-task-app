@@ -172,11 +172,8 @@ except Exception:
     st.error("⚠️ `.streamlit/secrets.toml` 설정 파일 누락")
     st.stop()
 
-@st.cache_resource
-def get_cookie_manager():
-    return stx.CookieManager(key="cm_mgr")
-
-cookie_manager = get_cookie_manager()
+# 💡 CachedWidgetWarning 해결: @st.cache_resource 없이 직접 쿠키 매니저 초기화
+cookie_manager = stx.CookieManager(key="cm_mgr")
 all_cookies = cookie_manager.get_all() or {}
 
 @st.cache_resource
