@@ -648,11 +648,14 @@ if analyze_clicked:
             wkday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()] + "요일"
             
             p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
+            
+            # 💡 [핵심 통신 규격 교정] google-genai SDK v1 엔드포인트 명시적 모델 객체 바인딩 적용
             client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
             schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
             config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
             
             with st.spinner("⚡ AI가 정밀 분석 중입니다..."):
+                # 💡 [Tier 1 및 일반 계정 공용 호환 모델 키 설정]
                 target_model = "gemini-1.5-flash"
                 if file_size_mb <= INLINE_LIMIT_MB:
                     plist = [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)]
