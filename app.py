@@ -34,7 +34,7 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [핵심 수정 1] 최신 표준 모델 우선 후보 리스트
+# 우선 시도할 최신 표준 모델 후보 리스트
 GEMINI_MODEL_CANDIDATES = [
     "gemini-2.5-flash",
     "gemini-2.5-pro",
@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     """
     return prompt
 
-# 💡 [핵심 수정 2] 서버에서 현재 API 키로 사용 가능한 모델 목록을 실시간 조회(ListModels)하는 함수
+# 서버에서 현재 API 키로 사용 가능한 모델 목록을 실시간 조회(ListModels)하는 함수
 def get_available_gemini_models(client):
     usable_models = []
     try:
@@ -106,7 +106,6 @@ def get_available_gemini_models(client):
                 continue
             clean_name = m_name.replace("models/", "")
             lower_name = clean_name.lower()
-            # 텍스트/음성 생성이 아닌 특수 목적 모델 제외
             if any(x in lower_name for x in ["embedding", "imagen", "veo", "aqa", "tts", "audio-dialog", "bisheng"]):
                 continue
             if "gemini" in lower_name and ("flash" in lower_name or "pro" in lower_name):
@@ -114,7 +113,6 @@ def get_available_gemini_models(client):
     except Exception:
         pass
     
-    # Flash 최신 모델을 우선 배치하도록 정렬
     usable_models.sort(key=lambda x: (0 if "2.5-flash" in x else (1 if "flash" in x else 2)))
     
     final_list = []
@@ -124,7 +122,7 @@ def get_available_gemini_models(client):
     return final_list
 
 # =====================================================================
-# [3. CSS 설정 (버튼 세로 한 줄씩 배치 최적화)]
+# [3. CSS 설정 (한 줄 캡슐형 버튼 강조 디자인 포함)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -150,7 +148,7 @@ premium_css = f"""
     
     .premium-header {{ 
         animation: slideUpFade 0.6s ease-out forwards;
-        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 15px; border: 1px solid rgba(255, 255, 255, 0.12); 
+        background: linear-gradient(135deg, #1e1b4b 0%, #312e81 50%, #4338ca 100%); color: #ffffff; padding: 18px 14px; border-radius: 16px; box-shadow: 0 8px 20px -5px rgba(49, 46, 129, 0.35); margin-bottom: 12px; border: 1px solid rgba(255, 255, 255, 0.12); 
     }}
     .premium-badge {{ display: inline-block; background: rgba(255, 255, 255, 0.18); color: #e0e7ff; font-size: 11px; font-weight: 700; padding: 3px 8px; border-radius: 20px; margin-bottom: 6px; letter-spacing: 0.5px; }}
     .premium-title {{ font-size: 18px !important; font-weight: 800 !important; margin: 0 0 4px 0 !important; line-height: 1.3 !important; letter-spacing: -0.5px !important; }}
@@ -180,6 +178,7 @@ premium_css = f"""
 
     [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; transition: all 0.3s; }}
     
+    /* 일반 메인 버튼 스타일 */
     div.stButton > button[kind="primary"], [data-testid="stBaseButton-primary"], div.stButton > button[kind="secondary"] {{
         background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%) !important;
         color: #ffffff !important;
@@ -193,6 +192,42 @@ premium_css = f"""
     div.stButton > button:active {{
         transform: scale(0.96) !important;
         box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.4) !important;
+    }}
+
+    /* 💡 [핵심 디자인] 한 줄 캡슐형 버튼(로그아웃 / 키 변경)이 눈에 확 띄도록 입체 버튼화 */
+    [data-testid="stSegmentedControl"], [data-testid="stButtonGroup"] {{
+        background-color: #f8fafc !important;
+        padding: 4px !important;
+        border-radius: 14px !important;
+        border: 2px solid #cbd5e1 !important;
+        display: flex !important;
+        flex-wrap: nowrap !important;
+        width: 100% !important;
+        box-sizing: border-box !important;
+        margin-bottom: 6px !important;
+    }}
+    [data-testid="stSegmentedControl"] button, [data-testid="stButtonGroup"] button {{
+        flex: 1 1 50% !important;
+        background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%) !important;
+        color: #1e1b4b !important;
+        border: 2px solid #4338ca !important;
+        border-radius: 10px !important;
+        font-weight: 800 !important;
+        font-size: 13px !important;
+        padding: 8px 6px !important;
+        margin: 0 3px !important;
+        box-shadow: 0 3px 6px rgba(67, 56, 202, 0.18) !important;
+        transition: all 0.15s ease-in-out !important;
+        white-space: nowrap !important;
+    }}
+    [data-testid="stSegmentedControl"] button:hover, [data-testid="stButtonGroup"] button:hover {{
+        background: #4338ca !important;
+        color: #ffffff !important;
+    }}
+    [data-testid="stSegmentedControl"] button:active, [data-testid="stButtonGroup"] button:active {{
+        transform: scale(0.96) !important;
+        background: #312e81 !important;
+        color: #ffffff !important;
     }}
 </style>
 """
@@ -339,7 +374,7 @@ def get_valid_credentials():
     return creds
 
 # =====================================================================
-# [5. 개인별 구글 드라이브/시트 조회 로직]
+# [5. 개인별 구글 드라이브/시트 조회 로직 및 신규 사용자 키 발급 모달]
 # =====================================================================
 def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
     if st.session_state["user_vault"].get("drive_folder_id"):
@@ -512,11 +547,12 @@ def save_api_key_permanently(raw_key):
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
 
+# 💡 [신규 사용자 키 발급 링크 및 입력 모달]
 @st.dialog("🎉 환영합니다! 무료 Gemini API 키 등록", width="large")
 def show_api_guide_modal():
-    st.markdown("<p style='font-size:14px; color:#334155; margin-bottom:10px;'>원활한 AI 분석을 위해 최초 1회 <b>API 키 등록</b>이 필요합니다.<br>발급받은 키는 개인 드라이브 금고에 안전하게 보관됩니다.</p>", unsafe_allow_html=True)
-    st.link_button("👉 무료 API 키 발급받기 (새 창 열기)", "https://aistudio.google.com/app/apikey", use_container_width=True)
-    modal_key = st.text_input("복사한 키 붙여넣기:", type="password", placeholder="AIzaSy...")
+    st.markdown("<p style='font-size:14px; color:#334155; margin-bottom:10px;'>원활한 AI 분석을 위해 최초 1회 <b>API 키 등록</b>이 필요합니다.<br>아래 버튼을 눌러 무료 키를 발급받은 뒤 입력창에 붙여넣어 주세요. (개인 드라이브 금고에 안전하게 자동 보관됩니다.)</p>", unsafe_allow_html=True)
+    st.link_button("👉 무료 API 키 발급받기 (Google AI Studio 열기)", "https://aistudio.google.com/app/apikey", use_container_width=True)
+    modal_key = st.text_input("복사한 API 키 붙여넣기:", type="password", placeholder="AIzaSy...")
     if st.button("✅ 저장하고 시작하기", type="primary", use_container_width=True):
         if modal_key.strip():
             with st.spinner("안전하게 저장 중..."): 
@@ -529,14 +565,45 @@ if is_logged_in and not st.session_state["saved_api_key"]:
         show_api_guide_modal()
 
 # =====================================================================
-# [세로로 한 줄에 하나씩 배치 (안전한 스택 레이아웃)]
+# [한 줄에 나란히 배치되는 캡슐형 버튼 (로그아웃 / 키 변경·등록)]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
+    key_btn_label = "🔑 키 변경 (재등록)"
 else:
-    st.success("✅ 계정 연동됨! 아래 키 등록 요망")
+    st.warning("⚠️ 계정 연동됨! 아래 [🔑 키 등록하기] 버튼을 눌러 키를 등록해 주세요.")
+    key_btn_label = "🔑 키 등록하기"
 
-if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_stack"):
+logout_btn_label = "🚪 로그아웃"
+
+# 단일 가로형 캡슐 컴포넌트로 두 버튼을 한 줄에 나란히 배치
+if hasattr(st, "segmented_control"):
+    selected_top_action = st.segmented_control(
+        "계정 및 키 관리 메뉴",
+        options=[logout_btn_label, key_btn_label],
+        default=None,
+        label_visibility="collapsed",
+        key="top_capsule_action_bar"
+    )
+elif hasattr(st, "pills"):
+    selected_top_action = st.pills(
+        "계정 및 키 관리 메뉴",
+        options=[logout_btn_label, key_btn_label],
+        default=None,
+        label_visibility="collapsed",
+        key="top_capsule_action_bar"
+    )
+else:
+    selected_top_action = st.radio(
+        "계정 및 키 관리 메뉴",
+        options=[logout_btn_label, key_btn_label],
+        index=None,
+        horizontal=True,
+        label_visibility="collapsed",
+        key="top_capsule_action_bar"
+    )
+
+if selected_top_action == logout_btn_label:
     del st.session_state["credentials"]
     st.session_state["saved_api_key"] = ""
     st.session_state["saved_rt_encoded"] = ""
@@ -549,19 +616,19 @@ if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_stac
     cookie_manager.delete("v_ak", key="del_ak_btn")
     st.query_params.clear()
     st.rerun()
-
-if st.session_state["saved_api_key"]:
-    if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_stack"):
-        if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
+elif selected_top_action == key_btn_label:
+    if st.session_state["saved_api_key"]:
+        if "credentials" in st.session_state:
+            save_api_key_to_cloud_vault(get_valid_credentials(), "")
         st.session_state["saved_api_key"] = ""
         st.session_state["key_cleared_flag"] = True
         st.session_state["user_vault"]["ak_encoded"] = ""
         cookie_manager.delete("v_ak", key="del_ak")
         st.session_state["api_popup_shown"] = False
-        if "ak" in st.query_params: del st.query_params["ak"]
+        if "ak" in st.query_params:
+            del st.query_params["ak"]
         st.rerun()
-else:
-    if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_stack"):
+    else:
         show_api_guide_modal()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
@@ -705,7 +772,6 @@ if analyze_clicked:
                 temperature=0.1
             )
             
-            # 💡 [핵심 수정 3] 기본 후보군 + 실시간 ListModels 조회 모델을 합쳐 순차 시도
             with st.spinner("⚡ AI가 정밀 분석 중입니다..."):
                 result_data = None
                 last_error = None
