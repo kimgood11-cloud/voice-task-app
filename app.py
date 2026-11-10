@@ -81,7 +81,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
        - [파트 2: 전체 녹음 원본 받아쓰기] 처음부터 끝까지 전체 STT 기재.
     5. DueDate & EventTime:
        - [중요] 과거 사건 일시는 캘린더 등록 날짜에서 제외할 것!
-       - 현재 시각({current_time_str}) 이후로 향후 예정된 출석, 미팅, 마감 등 실제 미래 스케줄만 추출(YYYY-MM-DD, HH:MM). 없으면 빈칸("").
+       - 현재 시각({current_time_str}) 이후로 향후 예정 출석, 미팅, 마감 등 실제 미래 스케줄만 추출(YYYY-MM-DD, HH:MM). 없으면 빈칸("").
 
     [출력 JSON 규격]
     {{
@@ -96,7 +96,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (오류 유발 모바일 강제고정 CSS 완전 제거)]
+# [3. CSS 설정 (모바일 50:50 비율 강제 고정 적용)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,6 +106,20 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
+    /* 모바일 환경에서 컬럼이 세로로 떨어지지 않게 가로 50:50 배치 강제 고정 */
+    @media (max-width: 768px) {{
+        div[data-testid="stHorizontalBlock"] {{
+            flex-direction: row !important;
+            flex-wrap: nowrap !important;
+            gap: 8px !important;
+        }}
+        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
+            width: 50% !important;
+            flex: 1 1 50% !important;
+            min-width: 0 !important;
+        }}
+    }}
+
     @keyframes slideUpFade {{
         0% {{ opacity: 0; transform: translateY(20px); }}
         100% {{ opacity: 1; transform: translateY(0); }}
@@ -213,6 +227,9 @@ if "user_vault" not in st.session_state:
         "logged_out": False
     }
 
+if "api_popup_shown" not in st.session_state:
+    st.session_state["api_popup_shown"] = False
+
 # 1. 구글 로그인 직후 콜백 처리
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
@@ -282,7 +299,6 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
-# 임시 창 닫기 중복 방지
 if st.session_state.get("just_logged_in"):
     st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
     st.stop()
@@ -488,51 +504,61 @@ def save_api_key_permanently(raw_key):
     if "credentials" in st.session_state:
         save_api_key_to_cloud_vault(get_valid_credentials(), encoded_val)
 
-@st.dialog("🔑 무료 Gemini API 키 등록", width="large")
+@st.dialog("🎉 환영합니다! 무료 Gemini API 키 등록", width="large")
 def show_api_guide_modal():
-    st.markdown("<p style='font-size:13px;'>최초 1회만 등록하면 개별 계정 금고에 유지됩니다.</p>", unsafe_allow_html=True)
-    st.link_button("👉 API 키 발급받기 (새 창)", "https://aistudio.google.com/app/apikey", use_container_width=True)
-    modal_key = st.text_input("복사한 키 붙여넣기:", type="password")
-    if st.button("✅ 저장", type="primary", use_container_width=True):
+    st.markdown("<p style='font-size:14px; color:#334155; margin-bottom:10px;'>원활한 AI 분석을 위해 최초 1회 <b>API 키 등록</b>이 필요합니다.<br>발급받은 키는 개인 드라이브 금고에 안전하게 보관됩니다.</p>", unsafe_allow_html=True)
+    st.link_button("👉 무료 API 키 발급받기 (새 창 열기)", "https://aistudio.google.com/app/apikey", use_container_width=True)
+    modal_key = st.text_input("복사한 키 붙여넣기:", type="password", placeholder="AIzaSy...")
+    if st.button("✅ 저장하고 시작하기", type="primary", use_container_width=True):
         if modal_key.strip():
-            with st.spinner("저장 중..."): save_api_key_permanently(modal_key)
+            with st.spinner("안전하게 저장 중..."): 
+                save_api_key_permanently(modal_key)
             st.rerun()
 
+if is_logged_in and not st.session_state["saved_api_key"]:
+    if not st.session_state.get("api_popup_shown"):
+        st.session_state["api_popup_shown"] = True
+        show_api_guide_modal()
+
 # =====================================================================
-# 💡 [핵심 구현] 위아래(세로) 배치 원상 복구 (가장 안정적인 형태)
+# [50:50 나란히 배치 및 컴포넌트 렌더링]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
 else:
     st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
-# 컬럼 없이 위아래로 100% 꽉 찬 버튼 세로 배치
-if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_vert"):
-    del st.session_state["credentials"]
-    st.session_state["saved_api_key"] = ""
-    st.session_state["saved_rt_encoded"] = ""
-    st.session_state["logged_out_flag"] = True
-    st.session_state["key_cleared_flag"] = True
-    st.session_state["user_vault"]["rt_encoded"] = ""
-    st.session_state["user_vault"]["ak_encoded"] = ""
-    st.session_state["user_vault"]["logged_out"] = True
-    cookie_manager.delete("v_rt", key="del_rt_vert")
-    cookie_manager.delete("v_ak", key="del_ak_vert")
-    st.query_params.clear()
-    st.rerun()
+btn_col1, btn_col2 = st.columns(2)
 
-if st.session_state["saved_api_key"]:
-    if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_vert"):
-        if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
+with btn_col1:
+    if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
+        del st.session_state["credentials"]
         st.session_state["saved_api_key"] = ""
+        st.session_state["saved_rt_encoded"] = ""
+        st.session_state["logged_out_flag"] = True
         st.session_state["key_cleared_flag"] = True
+        st.session_state["user_vault"]["rt_encoded"] = ""
         st.session_state["user_vault"]["ak_encoded"] = ""
-        cookie_manager.delete("v_ak", key="del_ak")
-        if "ak" in st.query_params: del st.query_params["ak"]
+        st.session_state["user_vault"]["logged_out"] = True
+        cookie_manager.delete("v_rt", key="del_rt_btn")
+        cookie_manager.delete("v_ak", key="del_ak_btn")
+        st.query_params.clear()
         st.rerun()
-else:
-    if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_vert"):
-        show_api_guide_modal()
+
+with btn_col2:
+    if st.session_state["saved_api_key"]:
+        if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_row"):
+            if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
+            st.session_state["saved_api_key"] = ""
+            st.session_state["key_cleared_flag"] = True
+            st.session_state["user_vault"]["ak_encoded"] = ""
+            cookie_manager.delete("v_ak", key="del_ak")
+            st.session_state["api_popup_shown"] = False
+            if "ak" in st.query_params: del st.query_params["ak"]
+            st.rerun()
+    else:
+        if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_row"):
+            show_api_guide_modal()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
@@ -546,6 +572,9 @@ st.markdown(f"""
         </div>
     </div>
 """, unsafe_allow_html=True)
+
+# 💡 [버그 수정 완료] NameError 원천 차단을 위해 변수를 전역 공간에 명시적으로 선언합니다.
+user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
 # [6. 메인 입력 구역]
