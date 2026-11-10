@@ -34,7 +34,6 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [핵심 변수] 404 에러 방지를 위한 표준 단일 모델 고정
 GEMINI_MODEL_CANDIDATES = [
     "gemini-1.5-flash"
 ]
@@ -505,7 +504,6 @@ if st.session_state["saved_api_key"]:
 else:
     st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
-# 💡 [요청 반영] 버튼들이 가로로 찌그러지거나 사라지지 않도록 세로로 하나씩 안정적으로 배치
 if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_stack"):
     del st.session_state["credentials"]
     st.session_state["saved_api_key"] = ""
@@ -650,7 +648,6 @@ if analyze_clicked:
             wkday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()] + "요일"
             
             p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
-            # 💡 [핵심 수정] Tier 1 및 최신 google-genai SDK 규격 호환을 위한 모델 객체/이름 표준 바인딩 적용
             client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
             schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
             config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
@@ -742,7 +739,7 @@ with st.expander("📁 내 저장된 녹음 리스트 조회"):
                                 fetched = download_audio_from_drive(creds, url)
                                 if fetched: st.audio(fetched, format="audio/wav")
                                 else: st.error("파일 로드 실패")
-                            st.markdown(f'<a href="{url}" target="_blank">🔗 구글 드라이브 열기</a>', unsafe_allow_html=TaskTarget:=url)
+                            st.markdown(f'<a href="{url}" target="_blank">🔗 구글 드라이브 열기</a>', unsafe_allow_html=True)
         except Exception: st.warning("목록 로드 실패")
 
 with st.expander("📊 주간 요약 보고서 자동 생성"):
