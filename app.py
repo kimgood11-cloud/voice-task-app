@@ -19,7 +19,7 @@ import extra_streamlit_components as stx
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
-APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
+APP_SUBTITLE = "AI 실 연동 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
@@ -28,23 +28,19 @@ IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp"]
 
 AUTO_SYNC_USAGE_ON_START = False
 LOGIN_LINK_TARGET = "_top"
-
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [구글 최적화 포인트] 속도와 음성 처리에 가장 강력한 1.5 Flash를 최우선 순위로 고정
+# 💡 [버그 수정 완수] 404 에러를 유발하던 없는 모델을 지우고 1.5-flash로 안정화
 GEMINI_MODEL_CANDIDATES = [
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-2.0-flash"
+    "gemini-1.5-flash"
 ]
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
 LONG_AUDIO_TIMEOUT_MS = 120000
-
 MAX_SINGLE_FREE_MINUTES = 120
 DAILY_FREE_LIMIT_MINUTES = 600
 DAILY_FREE_LIMIT_REQUESTS = 500
@@ -97,7 +93,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (모바일 50:50 여백 포함 강제 고정 - 화면 잘림 완벽 방지)]
+# [3. CSS 설정 (유연한 1줄 배치로 화면 잘림 방지)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -107,16 +103,16 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [수정 완료] 버튼 사이의 간격을 뺀 정확한 50%를 할당하여 화면 우측 잘림 방지 */
+    /* 💡 [레이아웃 수정 완수] 억지 계산(calc)을 지우고, 남은 공간을 자연스럽게 나눠 갖도록 유연하게 설정 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 8px !important;
+            gap: 0.5rem !important;
         }}
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-            width: calc(50% - 4px) !important;
-            flex: 1 1 calc(50% - 4px) !important;
+            width: auto !important;
+            flex: 1 1 0% !important;
             min-width: 0 !important;
         }}
     }}
@@ -162,7 +158,6 @@ premium_css = f"""
         animation: slideUpFade 0.6s ease-out 0.2s forwards; opacity: 0;
         background: #f8fafc; border: 1px solid #cbd5e1; border-left: 5px solid #000000; border-radius: 12px; padding: 12px 14px; margin-top: 6px; margin-bottom: 12px; word-break: keep-all; transition: all 0.3s;
     }}
-    .mic-guide-card:hover {{ transform: translateY(-2px); box-shadow: 0 4px 12px rgba(0,0,0,0.05); }}
     
     .pulse-mic {{ animation: pulse 2s infinite; }}
 
@@ -231,7 +226,7 @@ if "user_vault" not in st.session_state:
 if "api_popup_shown" not in st.session_state:
     st.session_state["api_popup_shown"] = False
 
-# 1. 구글 로그인 직후 콜백 처리
+# 1. 구글 로그인 콜백 처리
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -363,12 +358,10 @@ def save_api_key_to_cloud_vault(creds, encoded_key):
         except gspread.exceptions.SpreadsheetNotFound:
             spreadsheet = client_gspread.create(SHEET_NAME)
             sheet1 = spreadsheet.sheet1
-            
         try: sheet1.update(range_name="A1:I1", values=[SHEET_HEADERS + [encoded_key]])
         except Exception:
             try: sheet1.update(range_name="I1", values=[[encoded_key]])
             except Exception: pass
-            
         try: ws = spreadsheet.worksheet(CONFIG_SHEET_TAB)
         except gspread.exceptions.WorksheetNotFound:
             ws = spreadsheet.add_worksheet(title=CONFIG_SHEET_TAB, rows=10, cols=2)
@@ -460,7 +453,6 @@ today_str = now_kst.strftime("%Y-%m-%d")
 
 if "saved_api_key" not in st.session_state:
     st.session_state["saved_api_key"] = ""
-
 if "daily_request_count" not in st.session_state:
     st.session_state["daily_request_count"] = 0
     st.session_state["daily_used_seconds"] = 0.0
@@ -522,7 +514,7 @@ if is_logged_in and not st.session_state["saved_api_key"]:
         show_api_guide_modal()
 
 # =====================================================================
-# [50:50 나란히 배치 및 컴포넌트 렌더링]
+# [한 줄 나란히 배치 및 컴포넌트 렌더링]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
@@ -574,6 +566,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
+# 💡 [버그 수정 완료] NameError를 막기 위해 분석 전에 미리 변수를 세팅해 둡니다.
 user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
