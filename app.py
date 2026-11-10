@@ -34,7 +34,7 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [핵심 변수] 가장 안정적인 1.5-flash 단일 모델 체제 고정
+# 💡 [핵심 변수] 404 에러 방지를 위한 표준 단일 모델 고정
 GEMINI_MODEL_CANDIDATES = [
     "gemini-1.5-flash"
 ]
@@ -93,7 +93,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (버튼 밀림 현상 완벽 방지)]
+# [3. CSS 설정 (버튼 세로 한 줄씩 배치 최적화)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -103,20 +103,6 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [씽크빅 팀] 모바일 화면에서도 버튼이 줄바꿈되지 않고 50:50으로 나란히 유지되도록 강제 고정 */
-    @media (max-width: 768px) {{
-        div[data-testid="stHorizontalBlock"] {{
-            flex-direction: row !important;
-            flex-wrap: nowrap !important;
-            gap: 8px !important;
-        }}
-        div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-            width: 50% !important;
-            flex: 1 1 50% !important;
-            min-width: 0 !important;
-        }}
-    }}
-
     @keyframes slideUpFade {{
         0% {{ opacity: 0; transform: translateY(20px); }}
         100% {{ opacity: 1; transform: translateY(0); }}
@@ -512,44 +498,41 @@ if is_logged_in and not st.session_state["saved_api_key"]:
         show_api_guide_modal()
 
 # =====================================================================
-# [한 줄 나란히 배치 및 컴포넌트 렌더링 (단일 표준 모델 적용)]
+# [세로로 한 줄에 하나씩 배치 (안전한 스택 레이아웃)]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
 else:
     st.success("✅ 계정 연동됨! 아래 키 등록 요망")
 
-btn_col1, btn_col2 = st.columns(2)
+# 💡 [요청 반영] 버튼들이 가로로 찌그러지거나 사라지지 않도록 세로로 하나씩 안정적으로 배치
+if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_stack"):
+    del st.session_state["credentials"]
+    st.session_state["saved_api_key"] = ""
+    st.session_state["saved_rt_encoded"] = ""
+    st.session_state["logged_out_flag"] = True
+    st.session_state["key_cleared_flag"] = True
+    st.session_state["user_vault"]["rt_encoded"] = ""
+    st.session_state["user_vault"]["ak_encoded"] = ""
+    st.session_state["user_vault"]["logged_out"] = True
+    cookie_manager.delete("v_rt", key="del_rt_btn")
+    cookie_manager.delete("v_ak", key="del_ak_btn")
+    st.query_params.clear()
+    st.rerun()
 
-with btn_col1:
-    if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
-        del st.session_state["credentials"]
+if st.session_state["saved_api_key"]:
+    if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_stack"):
+        if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
         st.session_state["saved_api_key"] = ""
-        st.session_state["saved_rt_encoded"] = ""
-        st.session_state["logged_out_flag"] = True
         st.session_state["key_cleared_flag"] = True
-        st.session_state["user_vault"]["rt_encoded"] = ""
         st.session_state["user_vault"]["ak_encoded"] = ""
-        st.session_state["user_vault"]["logged_out"] = True
-        cookie_manager.delete("v_rt", key="del_rt_btn")
-        cookie_manager.delete("v_ak", key="del_ak_btn")
-        st.query_params.clear()
+        cookie_manager.delete("v_ak", key="del_ak")
+        st.session_state["api_popup_shown"] = False
+        if "ak" in st.query_params: del st.query_params["ak"]
         st.rerun()
-
-with btn_col2:
-    if st.session_state["saved_api_key"]:
-        if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_row"):
-            if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
-            st.session_state["saved_api_key"] = ""
-            st.session_state["key_cleared_flag"] = True
-            st.session_state["user_vault"]["ak_encoded"] = ""
-            cookie_manager.delete("v_ak", key="del_ak")
-            st.session_state["api_popup_shown"] = False
-            if "ak" in st.query_params: del st.query_params["ak"]
-            st.rerun()
-    else:
-        if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_row"):
-            show_api_guide_modal()
+else:
+    if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_stack"):
+        show_api_guide_modal()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
 st.markdown(f"""
