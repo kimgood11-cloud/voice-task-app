@@ -34,10 +34,9 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [핵심 변수] 404 에러 방지를 위한 든든한 백업 모델 리스트 원상 복구
+# 💡 [핵심 변수] 가장 안정적인 1.5-flash 단일 모델 체제 고정
 GEMINI_MODEL_CANDIDATES = [
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest"
+    "gemini-1.5-flash"
 ]
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
@@ -94,7 +93,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (가장 튼튼한 기본 렌더링 유지)]
+# [3. CSS 설정 (버튼 밀림 현상 완벽 방지)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -104,7 +103,7 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [문서화] 모바일에서 화면 폭이 좁아도 컬럼이 세로로 떨어지지 않게 강제로 가로 유지 */
+    /* 💡 [씽크빅 팀] 모바일 화면에서도 버튼이 줄바꿈되지 않고 50:50으로 나란히 유지되도록 강제 고정 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
             flex-direction: row !important;
@@ -513,7 +512,7 @@ if is_logged_in and not st.session_state["saved_api_key"]:
         show_api_guide_modal()
 
 # =====================================================================
-# [한 줄 나란히 배치 및 컴포넌트 렌더링 (원상 복구)]
+# [한 줄 나란히 배치 및 컴포넌트 렌더링 (단일 표준 모델 적용)]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
@@ -523,7 +522,6 @@ else:
 btn_col1, btn_col2 = st.columns(2)
 
 with btn_col1:
-    # 💡 [문서화] use_container_width=True 속성을 복구하여 버튼이 0픽셀로 증발하는 버그 해결
     if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
         del st.session_state["credentials"]
         st.session_state["saved_api_key"] = ""
@@ -566,7 +564,6 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# 💡 [문서화] 전역 공간에 API 키 변수를 선언하여 NameError 완벽 차단
 user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
