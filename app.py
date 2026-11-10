@@ -34,11 +34,13 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [핵심 수정 1] 404 에러 방지를 위한 다중 호환 모델 후보 리스트 (순차 자동 전환용)
+# 💡 [핵심 수정 1] 최신 표준 모델 우선 후보 리스트
 GEMINI_MODEL_CANDIDATES = [
+    "gemini-2.5-flash",
+    "gemini-2.5-pro",
     "gemini-2.0-flash",
-    "gemini-1.5-flash-002",
-    "gemini-1.5-flash"
+    "gemini-2.0-flash-001",
+    "gemini-1.5-flash-latest"
 ]
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
@@ -58,7 +60,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [2. AI 프롬프트 생성 함수]
+# [2. AI 프롬프트 생성 및 동적 모델 탐색 함수]
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_image=False):
     image_instruction = ""
@@ -93,6 +95,33 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     }}
     """
     return prompt
+
+# 💡 [핵심 수정 2] 서버에서 현재 API 키로 사용 가능한 모델 목록을 실시간 조회(ListModels)하는 함수
+def get_available_gemini_models(client):
+    usable_models = []
+    try:
+        for m in client.models.list():
+            m_name = getattr(m, "name", "")
+            if not m_name:
+                continue
+            clean_name = m_name.replace("models/", "")
+            lower_name = clean_name.lower()
+            # 텍스트/음성 생성이 아닌 특수 목적 모델 제외
+            if any(x in lower_name for x in ["embedding", "imagen", "veo", "aqa", "tts", "audio-dialog", "bisheng"]):
+                continue
+            if "gemini" in lower_name and ("flash" in lower_name or "pro" in lower_name):
+                usable_models.append(clean_name)
+    except Exception:
+        pass
+    
+    # Flash 최신 모델을 우선 배치하도록 정렬
+    usable_models.sort(key=lambda x: (0 if "2.5-flash" in x else (1 if "flash" in x else 2)))
+    
+    final_list = []
+    for candidate in GEMINI_MODEL_CANDIDATES + usable_models:
+        if candidate not in final_list:
+            final_list.append(candidate)
+    return final_list
 
 # =====================================================================
 # [3. CSS 설정 (버튼 세로 한 줄씩 배치 최적화)]
@@ -652,11 +681,9 @@ if analyze_clicked:
             
             p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
             
-            # 💡 [핵심 수정 2] v1 엔드포인트의 404 에러를 막기 위해 api_version="v1beta"를 명시적으로 지정
             client = genai.Client(
                 api_key=user_api_key.strip(),
                 http_options=types.HttpOptions(
-                    api_version="v1beta",
                     timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb <= 5 and not has_img else LONG_AUDIO_TIMEOUT_MS
                 )
             )
@@ -678,17 +705,18 @@ if analyze_clicked:
                 temperature=0.1
             )
             
-            # 💡 [핵심 수정 3] 단일 모델 고정 호출 대신 후보군 리스트 순차 호출(Fallback) 적용
+            # 💡 [핵심 수정 3] 기본 후보군 + 실시간 ListModels 조회 모델을 합쳐 순차 시도
             with st.spinner("⚡ AI가 정밀 분석 중입니다..."):
                 result_data = None
                 last_error = None
+                active_model_list = get_available_gemini_models(client)
                 
                 if file_size_mb <= INLINE_LIMIT_MB:
                     plist = [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)]
                     if has_img: plist.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
                     plist.append(p_text)
                     
-                    for candidate_model in GEMINI_MODEL_CANDIDATES:
+                    for candidate_model in active_model_list:
                         try:
                             resp = client.models.generate_content(
                                 model=candidate_model,
@@ -709,7 +737,7 @@ if analyze_clicked:
                     if has_img: plist.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
                     plist.append(p_text)
                     
-                    for candidate_model in GEMINI_MODEL_CANDIDATES:
+                    for candidate_model in active_model_list:
                         try:
                             resp = client.models.generate_content(
                                 model=candidate_model,
