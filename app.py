@@ -19,7 +19,7 @@ import extra_streamlit_components as stx
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
-APP_SUBTITLE = "AI 실 연동 요약 · 구글 시트/캘린더 스마트 연동"
+APP_SUBTITLE = "AI 실시간 요약 · 구글 시트/캘린더 스마트 연동"
 AUDIO_CHECKBOX_LABEL = "💾 원본 음성 구글 드라이브 백업"
 ANALYZE_BUTTON_LABEL = "🚀 분석실행하기"
 
@@ -28,19 +28,24 @@ IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp"]
 
 AUTO_SYNC_USAGE_ON_START = False
 LOGIN_LINK_TARGET = "_top"
+
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [버그 수정 완수] 404 에러를 유발하던 없는 모델을 지우고 1.5-flash로 안정화
+# 💡 [백그라운드 수술 완료] 404 에러 방지를 위해 구글 공식 호환 모델들을 순차적으로 예비 배치
 GEMINI_MODEL_CANDIDATES = [
-    "gemini-1.5-flash"
+    "gemini-1.5-flash",
+    "gemini-1.5-flash-latest",
+    "gemini-1.5-flash-001",
+    "gemini-1.5-flash-002"
 ]
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
 LONG_AUDIO_TIMEOUT_MS = 120000
+
 MAX_SINGLE_FREE_MINUTES = 120
 DAILY_FREE_LIMIT_MINUTES = 600
 DAILY_FREE_LIMIT_REQUESTS = 500
@@ -93,7 +98,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (유연한 1줄 배치로 화면 잘림 방지)]
+# [3. CSS 설정 (모바일 50:50 강력 고정 - 밀림 방지)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -103,16 +108,15 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [레이아웃 수정 완수] 억지 계산(calc)을 지우고, 남은 공간을 자연스럽게 나눠 갖도록 유연하게 설정 */
+    /* 💡 [레이아웃 수술 완료] 어떠한 모바일 기기에서도 줄바꿈 없이 50:50으로 나란히 고정 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
             flex-direction: row !important;
             flex-wrap: nowrap !important;
-            gap: 0.5rem !important;
         }}
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-            width: auto !important;
-            flex: 1 1 0% !important;
+            width: 50% !important;
+            flex: 1 1 50% !important;
             min-width: 0 !important;
         }}
     }}
@@ -566,7 +570,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# 💡 [버그 수정 완료] NameError를 막기 위해 분석 전에 미리 변수를 세팅해 둡니다.
+# 💡 [버그 원천 차단 완료] 전역 공간에 API 키 변수를 명시적으로 선언해 둡니다.
 user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
