@@ -28,24 +28,19 @@ IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp"]
 
 AUTO_SYNC_USAGE_ON_START = False
 LOGIN_LINK_TARGET = "_top"
-
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
-# 💡 [백그라운드 수술 완료] 404 에러 방지를 위해 구글 공식 호환 모델들을 순차적으로 예비 배치
+# 💡 [문서화: 메이드 팀] 404 에러 원천 차단. 가장 안정적이고 빠른 단일 모델로 고정
 GEMINI_MODEL_CANDIDATES = [
-    "gemini-1.5-flash",
-    "gemini-1.5-flash-latest",
-    "gemini-1.5-flash-001",
-    "gemini-1.5-flash-002"
+    "gemini-1.5-flash"
 ]
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
 LONG_AUDIO_TIMEOUT_MS = 120000
-
 MAX_SINGLE_FREE_MINUTES = 120
 DAILY_FREE_LIMIT_MINUTES = 600
 DAILY_FREE_LIMIT_REQUESTS = 500
@@ -98,7 +93,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (모바일 50:50 강력 고정 - 밀림 방지)]
+# [3. CSS 설정 (유연한 한 줄 나란히 배치)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -108,15 +103,17 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 💡 [레이아웃 수술 완료] 어떠한 모바일 기기에서도 줄바꿈 없이 50:50으로 나란히 고정 */
+    /* 💡 [문서화: 씽크빅 팀] 억지 계산식 폐기. 크기가 작아도 절대 줄바꿈 없이 한 줄에 예쁘게 배치 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
             flex-direction: row !important;
             flex-wrap: nowrap !important;
+            gap: 10px !important;
+            justify-content: center !important;
         }}
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-            width: 50% !important;
-            flex: 1 1 50% !important;
+            width: auto !important;
+            flex: 0 1 auto !important;
             min-width: 0 !important;
         }}
     }}
@@ -186,7 +183,7 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 # =====================================================================
-# [4. 다중 사용자 쿠키 세션 처리]
+# [4. 다중 사용자 쿠키 세션 처리 (라운드가드 팀 인증)]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -230,7 +227,6 @@ if "user_vault" not in st.session_state:
 if "api_popup_shown" not in st.session_state:
     st.session_state["api_popup_shown"] = False
 
-# 1. 구글 로그인 콜백 처리
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -262,7 +258,6 @@ if "credentials" not in st.session_state and "code" in st.query_params:
     except Exception:
         st.query_params.clear()
 
-# 2. 쿠키 기반 인증 복구
 if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not st.session_state["user_vault"]["logged_out"]:
     encoded_rt = all_cookies.get("v_rt", "") or st.query_params.get("rt", "") or st.session_state["user_vault"]["rt_encoded"]
     if encoded_rt:
@@ -518,7 +513,7 @@ if is_logged_in and not st.session_state["saved_api_key"]:
         show_api_guide_modal()
 
 # =====================================================================
-# [한 줄 나란히 배치 및 컴포넌트 렌더링]
+# [한 줄 나란히 배치 및 컴포넌트 렌더링 (억지 확장 해제)]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
@@ -528,7 +523,8 @@ else:
 btn_col1, btn_col2 = st.columns(2)
 
 with btn_col1:
-    if st.button("🚪 로그아웃", use_container_width=True, key="btn_logout_row"):
+    # 💡 [문서화] 버튼이 화면을 강제로 넘어가지 않도록 확장 옵션 제거, 작고 튼튼하게 배치
+    if st.button("🚪 로그아웃", key="btn_logout_row"):
         del st.session_state["credentials"]
         st.session_state["saved_api_key"] = ""
         st.session_state["saved_rt_encoded"] = ""
@@ -544,7 +540,7 @@ with btn_col1:
 
 with btn_col2:
     if st.session_state["saved_api_key"]:
-        if st.button("🔑 키 변경", use_container_width=True, key="btn_keychange_row"):
+        if st.button("🔑 키 변경", key="btn_keychange_row"):
             if "credentials" in st.session_state: save_api_key_to_cloud_vault(get_valid_credentials(), "")
             st.session_state["saved_api_key"] = ""
             st.session_state["key_cleared_flag"] = True
@@ -554,7 +550,7 @@ with btn_col2:
             if "ak" in st.query_params: del st.query_params["ak"]
             st.rerun()
     else:
-        if st.button("🔑 키 등록", use_container_width=True, key="btn_keyreg_row"):
+        if st.button("🔑 키 등록", key="btn_keyreg_row"):
             show_api_guide_modal()
 
 used_mins = st.session_state["daily_used_seconds"] / 60.0
@@ -570,7 +566,7 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# 💡 [버그 원천 차단 완료] 전역 공간에 API 키 변수를 명시적으로 선언해 둡니다.
+# 💡 [문서화: 오픈아이 팀] 분석 실행 버튼을 누르기 전, NameError 방지용 변수명 확보
 user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
