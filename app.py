@@ -35,10 +35,11 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
+# 💡 [구글 최적화 포인트] 속도와 음성 처리에 가장 강력한 1.5 Flash를 최우선 순위로 고정
 GEMINI_MODEL_CANDIDATES = [
-    "gemini-2.0-flash",
+    "gemini-1.5-flash",
     "gemini-1.5-flash-latest",
-    "gemini-1.5-flash"
+    "gemini-2.0-flash"
 ]
 
 SHORT_AUDIO_TIMEOUT_MS = 25000
@@ -96,7 +97,7 @@ def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_im
     return prompt
 
 # =====================================================================
-# [3. CSS 설정 (모바일 50:50 비율 강제 고정 적용)]
+# [3. CSS 설정 (모바일 50:50 여백 포함 강제 고정 - 화면 잘림 완벽 방지)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -106,7 +107,7 @@ premium_css = f"""
 <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
 <meta name="theme-color" content="#1e1b4b">
 <style>
-    /* 모바일 환경에서 컬럼이 세로로 떨어지지 않게 가로 50:50 배치 강제 고정 */
+    /* 💡 [수정 완료] 버튼 사이의 간격을 뺀 정확한 50%를 할당하여 화면 우측 잘림 방지 */
     @media (max-width: 768px) {{
         div[data-testid="stHorizontalBlock"] {{
             flex-direction: row !important;
@@ -114,8 +115,8 @@ premium_css = f"""
             gap: 8px !important;
         }}
         div[data-testid="stHorizontalBlock"] > div[data-testid="column"] {{
-            width: 50% !important;
-            flex: 1 1 50% !important;
+            width: calc(50% - 4px) !important;
+            flex: 1 1 calc(50% - 4px) !important;
             min-width: 0 !important;
         }}
     }}
@@ -573,7 +574,6 @@ st.markdown(f"""
     </div>
 """, unsafe_allow_html=True)
 
-# 💡 [버그 수정 완료] NameError 원천 차단을 위해 변수를 전역 공간에 명시적으로 선언합니다.
 user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
