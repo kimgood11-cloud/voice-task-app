@@ -15,7 +15,7 @@ from google.genai import types
 import extra_streamlit_components as stx
 
 # =====================================================================
-# [1. 기본 환경 설정]
+# [1. 기본 환경 설정 (수정 가능한 변수 및 매개변수)]
 # =====================================================================
 PAGE_TITLE = "AI음성변환"
 APP_TITLE = "개인 맞춤형 AI음성변환 시스템"
@@ -34,7 +34,10 @@ CONFIG_SHEET_TAB = "_App_Config_"
 DRIVE_FOLDER_NAME = "AI_음성녹음_보관함"
 VAULT_FILE_NAME = "voice_api_key_vault.json"
 
+# 💡 [핵심 수정 1] 404 에러 방지를 위한 다중 호환 모델 후보 리스트 (순차 자동 전환용)
 GEMINI_MODEL_CANDIDATES = [
+    "gemini-2.0-flash",
+    "gemini-1.5-flash-002",
     "gemini-1.5-flash"
 ]
 
@@ -649,20 +652,54 @@ if analyze_clicked:
             
             p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
             
-            # 💡 [핵심 통신 규격 교정] google-genai SDK v1 엔드포인트 명시적 모델 객체 바인딩 적용
-            client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
-            schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
-            config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
+            # 💡 [핵심 수정 2] v1 엔드포인트의 404 에러를 막기 위해 api_version="v1beta"를 명시적으로 지정
+            client = genai.Client(
+                api_key=user_api_key.strip(),
+                http_options=types.HttpOptions(
+                    api_version="v1beta",
+                    timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb <= 5 and not has_img else LONG_AUDIO_TIMEOUT_MS
+                )
+            )
+            schema = types.Schema(
+                type=types.Type.OBJECT,
+                properties={
+                    "Category": types.Schema(type=types.Type.STRING),
+                    "Assignee": types.Schema(type=types.Type.STRING),
+                    "Summary": types.Schema(type=types.Type.STRING),
+                    "Details": types.Schema(type=types.Type.STRING),
+                    "DueDate": types.Schema(type=types.Type.STRING),
+                    "EventTime": types.Schema(type=types.Type.STRING)
+                },
+                required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"]
+            )
+            config = types.GenerateContentConfig(
+                response_mime_type="application/json",
+                response_schema=schema,
+                temperature=0.1
+            )
             
+            # 💡 [핵심 수정 3] 단일 모델 고정 호출 대신 후보군 리스트 순차 호출(Fallback) 적용
             with st.spinner("⚡ AI가 정밀 분석 중입니다..."):
-                # 💡 [Tier 1 및 일반 계정 공용 호환 모델 키 설정]
-                target_model = "gemini-1.5-flash"
+                result_data = None
+                last_error = None
+                
                 if file_size_mb <= INLINE_LIMIT_MB:
                     plist = [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)]
                     if has_img: plist.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
                     plist.append(p_text)
-                    resp = client.models.generate_content(model=target_model, contents=plist, config=config)
-                    result_data = json.loads(resp.text)
+                    
+                    for candidate_model in GEMINI_MODEL_CANDIDATES:
+                        try:
+                            resp = client.models.generate_content(
+                                model=candidate_model,
+                                contents=plist,
+                                config=config
+                            )
+                            result_data = json.loads(resp.text)
+                            break
+                        except Exception as model_err:
+                            last_error = model_err
+                            continue
                 else:
                     up_file = client.files.upload(file=io.BytesIO(audio_bytes), config=types.UploadFileConfig(mime_type=mime_type))
                     for _ in range(60):
@@ -671,10 +708,25 @@ if analyze_clicked:
                     plist = [up_file]
                     if has_img: plist.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
                     plist.append(p_text)
-                    resp = client.models.generate_content(model=target_model, contents=plist, config=config)
-                    result_data = json.loads(resp.text)
+                    
+                    for candidate_model in GEMINI_MODEL_CANDIDATES:
+                        try:
+                            resp = client.models.generate_content(
+                                model=candidate_model,
+                                contents=plist,
+                                config=config
+                            )
+                            result_data = json.loads(resp.text)
+                            break
+                        except Exception as model_err:
+                            last_error = model_err
+                            continue
+                            
                     try: client.files.delete(name=up_file.name)
                     except Exception: pass
+                
+                if result_data is None:
+                    raise last_error
             
             cat, assign, summ, det, due, evt = result_data.get("Category","기록"), result_data.get("Assignee","미지정"), result_data.get("Summary",""), result_data.get("Details",""), result_data.get("DueDate","").strip(), result_data.get("EventTime","").strip()
             
