@@ -650,28 +650,19 @@ if analyze_clicked:
             wkday = ["월", "화", "수", "목", "금", "토", "일"][now.weekday()] + "요일"
             
             p_text = build_gemini_prompt(ctime, wkday, today_str, has_image=has_img)
+            # 💡 [핵심 수정] Tier 1 및 최신 google-genai SDK 규격 호환을 위한 모델 객체/이름 표준 바인딩 적용
             client = genai.Client(api_key=user_api_key.strip(), http_options=types.HttpOptions(timeout=SHORT_AUDIO_TIMEOUT_MS if file_size_mb<=5 and not has_img else LONG_AUDIO_TIMEOUT_MS))
             schema = types.Schema(type=types.Type.OBJECT, properties={"Category": types.Schema(type=types.Type.STRING), "Assignee": types.Schema(type=types.Type.STRING), "Summary": types.Schema(type=types.Type.STRING), "Details": types.Schema(type=types.Type.STRING), "DueDate": types.Schema(type=types.Type.STRING), "EventTime": types.Schema(type=types.Type.STRING)}, required=["Category", "Assignee", "Summary", "Details", "DueDate", "EventTime"])
             config = types.GenerateContentConfig(response_mime_type="application/json", response_schema=schema, temperature=0.1)
             
             with st.spinner("⚡ AI가 정밀 분석 중입니다..."):
+                target_model = "gemini-1.5-flash"
                 if file_size_mb <= INLINE_LIMIT_MB:
                     plist = [types.Part.from_bytes(data=audio_bytes, mime_type=mime_type)]
                     if has_img: plist.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
                     plist.append(p_text)
-                    last_err = None
-                    for _ in range(2):
-                        for m in GEMINI_MODEL_CANDIDATES:
-                            try:
-                                resp = client.models.generate_content(model=m, contents=plist, config=config)
-                                result_data = json.loads(resp.text)
-                                break
-                            except Exception as e:
-                                last_err = e; err_str = str(e).lower()
-                                if "503" in err_str or "429" in err_str: time.sleep(0.5); continue
-                        else: continue
-                        break
-                    else: raise last_err
+                    resp = client.models.generate_content(model=target_model, contents=plist, config=config)
+                    result_data = json.loads(resp.text)
                 else:
                     up_file = client.files.upload(file=io.BytesIO(audio_bytes), config=types.UploadFileConfig(mime_type=mime_type))
                     for _ in range(60):
@@ -680,19 +671,8 @@ if analyze_clicked:
                     plist = [up_file]
                     if has_img: plist.append(types.Part.from_bytes(data=image_bytes, mime_type=image_mime_type))
                     plist.append(p_text)
-                    last_err = None
-                    for _ in range(2):
-                        for m in GEMINI_MODEL_CANDIDATES:
-                            try:
-                                resp = client.models.generate_content(model=m, contents=plist, config=config)
-                                result_data = json.loads(resp.text)
-                                break
-                            except Exception as e:
-                                last_err = e; err_str = str(e).lower()
-                                if "503" in err_str or "429" in err_str: time.sleep(0.5); continue
-                        else: continue
-                        break
-                    else: raise last_err
+                    resp = client.models.generate_content(model=target_model, contents=plist, config=config)
+                    result_data = json.loads(resp.text)
                     try: client.files.delete(name=up_file.name)
                     except Exception: pass
             
@@ -762,7 +742,7 @@ with st.expander("📁 내 저장된 녹음 리스트 조회"):
                                 fetched = download_audio_from_drive(creds, url)
                                 if fetched: st.audio(fetched, format="audio/wav")
                                 else: st.error("파일 로드 실패")
-                            st.markdown(f'<a href="{url}" target="_blank">🔗 구글 드라이브 열기</a>', unsafe_allow_html=True)
+                            st.markdown(f'<a href="{url}" target="_blank">🔗 구글 드라이브 열기</a>', unsafe_allow_html=TaskTarget:=url)
         except Exception: st.warning("목록 로드 실패")
 
 with st.expander("📊 주간 요약 보고서 자동 생성"):
