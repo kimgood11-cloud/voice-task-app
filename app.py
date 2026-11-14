@@ -28,6 +28,9 @@ IMAGE_UPLOAD_TYPES = ["jpg", "jpeg", "png", "webp"]
 
 AUTO_SYNC_USAGE_ON_START = False
 LOGIN_LINK_TARGET = "_top"
+# 💡 [추가 변수] 절전 모드 해제 직후 스마트폰 쿠키를 읽어올 때까지 기다리는 시간(초)
+COOKIE_SYNC_WAIT_SEC = 0.8
+
 REDIRECT_URI = "https://public-voice-task.streamlit.app/"
 SHEET_NAME = "Voice_Log_DB"
 CONFIG_SHEET_TAB = "_App_Config_"
@@ -60,7 +63,7 @@ TIMEZONE = "Asia/Seoul"
 KST = ZoneInfo(TIMEZONE)
 
 # =====================================================================
-# [2. AI 프롬프트 생성 및 동적 모델 탐색 함수]
+# [2. AI 프롬프트 생성 및 동적 모델 탐색 함수 (기존 정상 작동 코드 100% 보존)]
 # =====================================================================
 def build_gemini_prompt(current_time_str, weekday_korean, today_date_str, has_image=False):
     image_instruction = ""
@@ -121,7 +124,7 @@ def get_available_gemini_models(client):
     return final_list
 
 # =====================================================================
-# [3. CSS 설정 (상단 바둑판 버튼 격리 및 메인 버튼 디자인 보호)]
+# [3. CSS 설정 (상단 바둑판 버튼 격리 및 메인 버튼 디자인 100% 보존)]
 # =====================================================================
 st.set_page_config(page_title=PAGE_TITLE, page_icon="🎙️", layout="wide")
 
@@ -177,7 +180,7 @@ premium_css = f"""
 
     [data-testid="stAudioInput"] {{ border: 2px solid #000000 !important; border-radius: 14px !important; padding: 10px !important; background-color: #ffffff !important; transition: all 0.3s; }}
     
-    /* 💡 [메인 액션 버튼 보호] 분석실행하기 등 Primary 버튼은 진한 보라색 그라데이션 유지 */
+    /* 메인 액션 버튼 보호 (Primary 버튼은 진한 보라색 그라데이션 유지) */
     div.stButton > button[kind="primary"], [data-testid="stBaseButton-primary"] {{
         background: linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%) !important;
         color: #ffffff !important;
@@ -193,7 +196,7 @@ premium_css = f"""
         box-shadow: 0 4px 8px -2px rgba(67, 56, 202, 0.4) !important;
     }}
 
-    /* 💡 [상단 바둑판 그리드 전용] 로그아웃/키변경 두 칸만 모바일에서도 한 줄 1:1(50:50) 비율로 강제 고정 */
+    /* 상단 바둑판 그리드 전용: 로그아웃/키변경 두 칸만 모바일에서도 한 줄 1:1(50:50) 비율로 강제 고정 */
     [data-testid="stHorizontalBlock"] {{
         display: grid !important;
         grid-template-columns: 1fr 1fr !important;
@@ -208,7 +211,7 @@ premium_css = f"""
         flex: unset !important;
     }}
 
-    /* 💡 [상단 바둑판 버튼 디자인] 눈에 잘 띄는 남보라색 테두리와 연보라 입체 배경 적용 */
+    /* 상단 바둑판 버튼 디자인: 눈에 잘 띄는 남보라색 테두리와 연보라 입체 배경 적용 */
     div.stButton > button[kind="secondary"], [data-testid="stBaseButton-secondary"] {{
         width: 100% !important;
         background: linear-gradient(180deg, #ffffff 0%, #eef2ff 100%) !important;
@@ -236,7 +239,7 @@ premium_css = f"""
 st.markdown(premium_css, unsafe_allow_html=True)
 
 # =====================================================================
-# [4. 다중 사용자 쿠키 세션 처리]
+# [4. 다중 사용자 쿠키 세션 처리 (절전모드 해제 대기 및 쿠키 저장 보강)]
 # =====================================================================
 SCOPES = [
     "https://www.googleapis.com/auth/spreadsheets",
@@ -280,6 +283,7 @@ if "user_vault" not in st.session_state:
 if "api_popup_shown" not in st.session_state:
     st.session_state["api_popup_shown"] = False
 
+# 구글 OAuth 콜백(code) 도착 시 토큰 발급 및 쿠키 저장
 if "credentials" not in st.session_state and "code" in st.query_params:
     auth_code = st.query_params["code"]
     state_key = st.query_params.get("state", "")
@@ -311,6 +315,19 @@ if "credentials" not in st.session_state and "code" in st.query_params:
     except Exception:
         st.query_params.clear()
 
+# 💡 [핵심 수정 1] 절전 모드(잠자는 모양)에서 깨어난 직후 브라우저 쿠키가 로드될 때까지 1회 대기
+if (
+    "credentials" not in st.session_state
+    and not st.session_state.get("logged_out_flag")
+    and not st.session_state["user_vault"]["logged_out"]
+    and not all_cookies.get("v_rt")
+    and not st.session_state.get("cookie_wait_done")
+):
+    st.session_state["cookie_wait_done"] = True
+    time.sleep(COOKIE_SYNC_WAIT_SEC)
+    st.rerun()
+
+# 저장된 쿠키(v_rt)로 자동 로그인 복구
 if "credentials" not in st.session_state and not st.session_state.get("logged_out_flag") and not st.session_state["user_vault"]["logged_out"]:
     encoded_rt = all_cookies.get("v_rt", "") or st.query_params.get("rt", "") or st.session_state["user_vault"]["rt_encoded"]
     if encoded_rt:
@@ -347,22 +364,25 @@ st.markdown(f"""
 </div>
 """, unsafe_allow_html=True)
 
+# 💡 [핵심 수정 2] st.stop()을 제거하여 쿠키(v_rt)가 스마트폰에 완전히 기록되도록 보장하고 바로 사용 가능하게 연결
 if st.session_state.get("just_logged_in"):
-    st.info("✅ **로그인이 성공적으로 완료되었습니다!**\n\n현재 화면은 로그인을 위한 임시 브라우저 창입니다. 화면 상단 왼쪽의 **`X` 버튼**을 눌러 이 창을 완전히 닫은 후, 바탕화면의 앱 아이콘을 다시 실행해 주시면 꽉 찬 화면으로 쾌적하게 이용하실 수 있습니다.", icon="💡")
-    st.stop()
+    st.session_state["just_logged_in"] = False
+    st.toast("✅ 로그인 및 자동 유지 설정이 완료되었습니다!", icon="🎉")
 
 if not is_logged_in:
     if len(flow_store) > 100: flow_store.clear()
     flow = Flow.from_client_config(client_config, scopes=SCOPES, redirect_uri=REDIRECT_URI)
     auth_url, state_key = flow.authorization_url(prompt="consent", access_type="offline", include_granted_scopes="true")
     flow_store[state_key] = flow
-    st.markdown("""
+    st.markdown(f"""
         <div class="login-card">
             <h4 style="margin:0 0 8px 0;">🔐 구글 워크스페이스 연동</h4>
-            <p style="font-size:13px; color:#475569; margin:0;">각자의 구글 계정으로 로그인하여 사용하세요.</p>
+            <p style="font-size:13px; color:#475569; margin:0 0 14px 0;">한 번 로그인하면 브라우저에 로그인 상태가 자동 유지됩니다.</p>
+            <a href="{auth_url}" target="{LOGIN_LINK_TARGET}" style="display:block; width:100%; background:linear-gradient(135deg, #4338ca 0%, #6366f1 50%, #818cf8 100%); color:#ffffff; text-decoration:none; font-weight:800; font-size:15px; padding:12px 16px; border-radius:12px; box-shadow:0 8px 16px -4px rgba(67, 56, 202, 0.5); box-sizing:border-box;">
+                🚀 구글 로그인 시작 (클릭)
+            </a>
         </div>
     """, unsafe_allow_html=True)
-    st.link_button("🚀 구글 로그인 시작 (클릭)", auth_url, type="primary", use_container_width=True)
     st.stop()
 
 def get_valid_credentials():
@@ -376,7 +396,7 @@ def get_valid_credentials():
     return creds
 
 # =====================================================================
-# [5. 개인별 구글 드라이브/시트 조회 로직 및 신규 사용자 키 발급 모달]
+# [5. 개인별 구글 드라이브/시트 조회 로직 및 신규 사용자 키 발급 모달 (100% 보존)]
 # =====================================================================
 def get_or_create_drive_folder(creds, folder_name=DRIVE_FOLDER_NAME):
     if st.session_state["user_vault"].get("drive_folder_id"):
@@ -566,7 +586,7 @@ if is_logged_in and not st.session_state["saved_api_key"]:
         show_api_guide_modal()
 
 # =====================================================================
-# [가로 2열 바둑판 그리드로 나란히 배치되는 버튼 (로그아웃 / 키 변경·등록)]
+# [가로 2열 바둑판 그리드로 나란히 배치되는 버튼 (100% 보존)]
 # =====================================================================
 if st.session_state["saved_api_key"]:
     st.success("✅ 구글 & API키 자동유지 됨")
@@ -577,7 +597,6 @@ else:
 
 logout_btn_label = "🚪 로그아웃"
 
-# st.columns(2)와 secondary 버튼 타입을 결합하여 한 줄 1:1 바둑판 배치
 top_col1, top_col2 = st.columns(2)
 
 with top_col1:
@@ -627,7 +646,7 @@ st.markdown(f"""
 user_api_key = st.session_state.get("saved_api_key", "")
 
 # =====================================================================
-# [6. 메인 입력 구역]
+# [6. 메인 입력 구역 (100% 보존)]
 # =====================================================================
 BLACK_MIC_BADGE = '<span class="pulse-mic" style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#000000; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="12" height="12" viewBox="0 0 24 24" fill="white"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm5.91-3c-.49 0-.9.36-.98.85C16.52 14.2 14.47 16 12 16s-4.52-1.8-4.93-4.15c-.08-.49-.49-.85-.98-.85-.61 0-1.09.54-1 1.14.49 3 2.89 5.35 5.91 5.78V20c0 .55.45 1 1 1s1-.45 1-1v-2.08c3.02-.43 5.42-2.78 5.91-5.78.1-.6-.39-1.14-1-1.14z"/></svg></span>'
 RED_STOP_BADGE = '<span style="display:inline-flex; align-items:center; justify-content:center; width:22px; height:22px; border-radius:50%; background-color:#ef4444; color:#ffffff; vertical-align:middle; margin:0 2px;"><svg width="10" height="10" viewBox="0 0 24 24" fill="white"><rect x="6" y="6" width="12" height="12" rx="2"/></svg></span>'
@@ -671,7 +690,7 @@ st.write("")
 analyze_clicked = st.button(ANALYZE_BUTTON_LABEL, type="primary", use_container_width=True)
 
 # =====================================================================
-# [7. 분석 실행 및 구글 시트 연동]
+# [7. 분석 실행 및 구글 시트 연동 (100% 보존)]
 # =====================================================================
 def upload_audio_to_drive(creds, abytes, mtype, ftitle="Voice_Record"):
     authed_session = AuthorizedSession(creds)
@@ -822,7 +841,7 @@ if analyze_clicked:
         except Exception as e: st.error(f"⚠️ 오류 발생: {e}")
 
 # =====================================================================
-# [8. 보관함 구역]
+# [8. 보관함 구역 (100% 보존)]
 # =====================================================================
 st.markdown("<div style='margin:40px 0 20px 0; border-top: 2px dashed #cbd5e1;'></div>", unsafe_allow_html=True)
 st.markdown("<div style='font-size:16px; font-weight:800; color:#475569; margin-bottom:12px;'>📦 내 보관함 (과거 기록 및 보고서)</div>", unsafe_allow_html=True)
