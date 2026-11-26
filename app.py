@@ -1,4 +1,5 @@
 import streamlit as st
+import streamlit.components.v1 as components
 import json
 import io
 import re
@@ -161,6 +162,62 @@ premium_css = f"""
         transform: translateY(1px) !important;
         box-shadow: 0 6px 12px -3px rgba(67, 56, 202, 0.5) !important;
     }}
+
+    /* -------------------------------------------------------------
+       [신규 디자인] 상단 API 키 변경 & 로그아웃 1줄 바둑판 배치 + 블루 파스텔 스타일
+       ------------------------------------------------------------- */
+    div[data-testid="stElementContainer"]:has(.pastel-grid-btn-marker),
+    div.element-container:has(.pastel-grid-btn-marker) {{
+        display: none !important;
+        height: 0 !important;
+        margin: 0 !important;
+        padding: 0 !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) {{
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 10px !important;
+        width: 100% !important;
+        margin-top: 2px !important;
+        margin-bottom: 8px !important;
+    }}
+    @media (max-width: 768px) {{
+        div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) > div[data-testid="stColumn"],
+        div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) > div[data-testid="column"] {{
+            width: 100% !important;
+            min-width: 0 !important;
+            max-width: 100% !important;
+            flex: 1 1 50% !important;
+        }}
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) > div[data-testid="stColumn"],
+    div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) > div[data-testid="column"] {{
+        width: 100% !important;
+        min-width: 0 !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) div.stButton > button {{
+        background: linear-gradient(135deg, #e0f2fe 0%, #dbeafe 50%, #bfdbfe 100%) !important;
+        color: #1e3a8a !important;
+        border: 1.5px solid #93c5fd !important;
+        border-radius: 12px !important;
+        font-weight: 800 !important;
+        font-size: 14px !important;
+        padding: 10px 10px !important;
+        box-shadow: 0 4px 10px -2px rgba(59, 130, 246, 0.18) !important;
+        transition: all 0.2s ease !important;
+        width: 100% !important;
+        white-space: nowrap !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) div.stButton > button:hover {{
+        background: linear-gradient(135deg, #bae6fd 0%, #bfdbfe 50%, #93c5fd 100%) !important;
+        color: #1d4ed8 !important;
+        border-color: #60a5fa !important;
+        transform: translateY(-2px) !important;
+        box-shadow: 0 6px 14px -2px rgba(59, 130, 246, 0.28) !important;
+    }}
+    div[data-testid="stHorizontalBlock"]:has(.pastel-grid-btn-marker) div.stButton > button:active {{
+        transform: translateY(1px) !important;
+    }}
 </style>
 
 <div class="premium-header">
@@ -232,6 +289,7 @@ if "credentials" not in st.session_state and "code" in st.query_params and "stat
             if final_rt:
                 encoded_rt = base64.b64encode(final_rt.encode()).decode()
                 st.session_state["saved_rt_encoded"] = encoded_rt
+                st.session_state["oauth_popup_return_rt"] = encoded_rt
                 st.query_params["rt"] = encoded_rt
                 cookie_manager.set("voice_rt", encoded_rt, expires_at=datetime.now() + timedelta(days=COOKIE_EXPIRY_DAYS), key="set_rt_cookie_init")
             if existing_ak:
@@ -445,12 +503,33 @@ if "credentials" not in st.session_state:
                 한 번 로그인하면 <b>앱을 닫아도 로그아웃 전까지 계정이 영구 유지</b>되며,<br>
                 모든 데이터는 <b>본인의 구글 시트와 캘린더에만 독립적으로 저장</b>됩니다.
             </p>
-            <a href="{auth_url}" target="_blank" rel="noopener noreferrer" style="display: block; background-color: #ffffff; border: 2.5px solid #2563eb; color: #2563eb !important; padding: 15px 20px; text-decoration: none !important; border-radius: 12px; font-size: 16px; font-weight: 800; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);">
+            <a href="{auth_url}" target="_blank" style="display: block; background-color: #ffffff; border: 2.5px solid #2563eb; color: #2563eb !important; padding: 15px 20px; text-decoration: none !important; border-radius: 12px; font-size: 16px; font-weight: 800; box-shadow: 0 4px 12px rgba(37, 99, 235, 0.15);">
                 🚀 내 Google 계정으로 로그인 시작하기
             </a>
         </div>
     """, unsafe_allow_html=True)
     st.stop()
+
+if st.session_state.get("oauth_popup_return_rt"):
+    ret_rt = st.session_state.pop("oauth_popup_return_rt")
+    ret_ak = st.query_params.get("ak", "")
+    target_return_url = f"{REDIRECT_URI}?rt={ret_rt}" + (f"&ak={ret_ak}" if ret_ak else "")
+    components.html(
+        f"""
+        <script>
+        (function() {{
+            try {{
+                var topWin = window.top || window;
+                if (topWin.opener && !topWin.opener.closed) {{
+                    topWin.opener.location.replace({json.dumps(target_return_url)});
+                    setTimeout(function() {{ topWin.close(); }}, 150);
+                }}
+            }} catch (e) {{}}
+        }})();
+        </script>
+        """,
+        height=0
+    )
 
 if "credentials" in st.session_state and st.session_state.get("saved_rt_encoded"):
     existing_cookies = all_cookies or {}
@@ -700,10 +779,10 @@ def save_record_to_sheet(creds, row_data):
     sheet.append_row(row_data, value_input_option="RAW")
 
 if st.session_state["saved_api_key"]:
-    col_status, col_key_btn, col_logout = st.columns([3.2, 1.1, 1.1])
-    with col_status:
-        st.success("✅ 구글 계정 및 AI 키 클라우드 영구 금고 연동 활성화됨")
+    st.success("✅ 구글 계정 및 AI 키 클라우드 영구 금고 연동 활성화됨")
+    col_key_btn, col_logout = st.columns(2)
     with col_key_btn:
+        st.markdown('<span class="pastel-grid-btn-marker"></span>', unsafe_allow_html=True)
         if st.button("🔑 API 키 변경", use_container_width=True):
             if "credentials" in st.session_state:
                 creds = get_valid_credentials()
@@ -719,6 +798,7 @@ if st.session_state["saved_api_key"]:
             time.sleep(0.3)
             st.rerun()
     with col_logout:
+        st.markdown('<span class="pastel-grid-btn-marker"></span>', unsafe_allow_html=True)
         if st.button("🚪 로그아웃", use_container_width=True):
             if "credentials" in st.session_state:
                 del st.session_state["credentials"]
@@ -735,10 +815,14 @@ if st.session_state["saved_api_key"]:
             time.sleep(0.3)
             st.rerun()
 else:
-    col_status, col_logout = st.columns([4, 1.2])
-    with col_status:
-        st.success("✅ 내 구글 계정 연동 완료! (아래에서 AI 키를 1회 등록해 주세요)")
+    st.success("✅ 내 구글 계정 연동 완료! (아래에서 AI 키를 1회 등록해 주세요)")
+    col_empty_status_pad, col_logout = st.columns(2)
+    with col_empty_status_pad:
+        st.markdown('<span class="pastel-grid-btn-marker"></span>', unsafe_allow_html=True)
+        if st.button("📖 API 키 발급 안내", use_container_width=True):
+            show_api_guide_modal()
     with col_logout:
+        st.markdown('<span class="pastel-grid-btn-marker"></span>', unsafe_allow_html=True)
         if st.button("🚪 로그아웃", use_container_width=True):
             if "credentials" in st.session_state:
                 del st.session_state["credentials"]
